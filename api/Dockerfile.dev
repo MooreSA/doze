@@ -6,6 +6,9 @@ WORKDIR /app
 # Install air for hot reload (pinned version for Go 1.23)
 RUN go install github.com/cosmtrek/air@v1.49.0
 
+# Add Go bin to PATH
+ENV PATH="/go/bin:${PATH}"
+
 # Copy go mod files first for caching
 COPY go.mod go.sum* ./
 RUN go mod download
