@@ -62,7 +62,42 @@ Doze is a self-hosted mobile interface for Claude Code that runs in sandboxed Fl
 
 ## Quick Start
 
-(Coming soon after MVP is built)
+**Prerequisites:**
+- Docker & Docker Compose
+- Fly.io account with Sprites access
+- Claude Max subscription
+
+**Local Development:**
+
+```bash
+# Clone the repo
+git clone https://github.com/yourusername/doze.git
+cd doze
+
+# Copy env template and fill in your values
+cp .env.example .env
+# Edit .env with your FLY_API_TOKEN
+
+# Build and start services
+make build
+make up
+
+# View logs
+make logs
+
+# Open browser to http://localhost:3030
+```
+
+**Available Commands:**
+```bash
+make help          # Show all commands
+make build         # Build Docker images
+make up            # Start services
+make down          # Stop services
+make logs          # View logs
+make restart       # Restart services
+make clean         # Clean up everything
+```
 
 ## Development
 

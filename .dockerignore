@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+
+# Docs
+docs/
+*.md
+!api/README.md
+
+# Dev files
+.env
+.env.local
+*.log
+
+# IDE
+.vscode
+.idea
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+api/doze
+*.exe
+
+# Fly.io
+.fly/
+
+# Docker
+docker-compose.yml
+Dockerfile
