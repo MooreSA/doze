@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doze</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .status {
+            padding: 0.75rem 1rem;
+            background: #2d2d30;
+            border-bottom: 1px solid #555;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4ec9b0;
+        }
+
+        .status.waiting .status-indicator { background: #4ec9b0; }
+        .status.active .status-indicator { background: #dcdcaa; animation: pulse 1.5s infinite; }
+        .status.hibernated .status-indicator { background: #ce9178; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        #output {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        #input-area {
+            background: #252526;
+            padding: 1rem;
+            border-top: 1px solid #555;
+        }
+
+        #input {
+            width: 100%;
+            padding: 0.75rem;
+            background: #3c3c3c;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #d4d4d4;
+            font-family: inherit;
+            font-size: 16px; /* Prevents iOS zoom on focus */
+            outline: none;
+        }
+
+        #input:focus {
+            border-color: #4ec9b0;
+        }
+
+        .welcome {
+            opacity: 0.6;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .welcome h1 {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .welcome p {
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="status" id="status">
+        <div class="status-indicator"></div>
+        <span id="status-text">Connecting...</span>
+    </div>
+
+    <div id="output">
+        <div class="welcome">
+            <h1>🛌 Doze</h1>
+            <p>Chat with Claude Code from anywhere</p>
+            <p style="margin-top: 1rem; font-size: 0.8rem;">MVP coming soon...</p>
+        </div>
+    </div>
+
+    <div id="input-area">
+        <input
+            type="text"
+            id="input"
+            placeholder="Send a message to Claude..."
+            autocomplete="off"
+            disabled
+        />
+    </div>
+
+    <script>
+        const output = document.getElementById('output');
+        const input = document.getElementById('input');
+        const statusEl = document.getElementById('status');
+        const statusText = document.getElementById('status-text');
+
+        let eventSource;
+
+        function updateStatus(state, text) {
+            statusEl.className = `status ${state}`;
+            statusText.textContent = text;
+        }
+
+        function connect() {
+            eventSource = new EventSource('/stream');
+
+            eventSource.onopen = () => {
+                updateStatus('waiting', 'Connected');
+                input.disabled = false;
+            };
+
+            eventSource.onmessage = (e) => {
+                const data = JSON.parse(e.data);
+
+                if (data.type === 'output') {
+                    // Remove welcome message on first output
+                    const welcome = output.querySelector('.welcome');
+                    if (welcome) welcome.remove();
+
+                    output.textContent += data.content;
+                    output.scrollTop = output.scrollHeight;
+                }
+
+                if (data.type === 'state') {
+                    const stateLabels = {
+                        active: 'Claude is working...',
+                        waiting: 'Waiting for your message',
+                        hibernated: 'Session hibernated',
+                        waking: 'Waking up...'
+                    };
+                    updateStatus(data.state, stateLabels[data.state] || data.state);
+                }
+            };
+
+            eventSource.onerror = () => {
+                updateStatus('hibernated', 'Disconnected - reconnecting...');
+                input.disabled = true;
+                eventSource.close();
+                setTimeout(connect, 2000);
+            };
+        }
+
+        input.addEventListener('keypress', async (e) => {
+            if (e.key === 'Enter' && input.value.trim()) {
+                const message = input.value;
+                input.value = '';
+                input.disabled = true;
+
+                try {
+                    await fetch('/message', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ content: message })
+                    });
+                } catch (err) {
+                    console.error('Failed to send message:', err);
+                } finally {
+                    input.disabled = false;
+                    input.focus();
+                }
+            }
+        });
+
+        // Connect on load
+        connect();
+    </script>
+</body>
+</html>

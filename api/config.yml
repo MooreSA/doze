@@ -1,0 +1,19 @@
+# Doze Configuration
+
+repo:
+  name: "my-repo"
+  path: "/workspace/my-repo"
+
+sprites:
+  base_checkpoint: "base-authed"
+  repo_checkpoint: "repo-ready"
+  org_slug: "personal"
+
+timeouts:
+  idle_seconds: 180        # 3 minutes (or 30 for testing)
+  hibernate_grace: 10      # Grace period for Claude to shut down
+  resume_timeout: 30       # Max time to wait for resume
+
+server:
+  port: 8080
+  buffer_size_kb: 10       # Output buffer for reconnection

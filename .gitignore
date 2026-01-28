@@ -1,0 +1,39 @@
+# Binaries
+api/doze
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go
+api/vendor/
+*.test
+*.out
+go.work
+
+# Environment
+.env
+.env.local
+*.key
+*.pem
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Fly.io
+.fly/
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
