@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   api:
     build:
@@ -8,15 +6,15 @@ services:
     ports:
       - "3030:8080"  # Map to 3030 locally to avoid conflicts
     volumes:
-      - ./api:/app
-      - ./web:/web
+      # Mount web UI (read-only)
+      - ./web:/web:ro
+      # Don't mount ./api - it overwrites the built binary
     environment:
-      - FLY_API_TOKEN=${FLY_API_TOKEN}
-      - SPRITES_ORG_SLUG=${SPRITES_ORG_SLUG}
+      - FLY_API_TOKEN=${FLY_API_TOKEN:-}
+      - SPRITES_ORG_SLUG=${SPRITES_ORG_SLUG:-personal}
       - PORT=8080
       - WEB_PATH=/web
     restart: unless-stopped
-    command: sh -c "cd /app && ./doze"
 
   # Nginx for serving web UI (optional, for production-like setup)
   # For MVP, API server can serve the HTML directly

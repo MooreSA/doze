@@ -92,12 +92,16 @@ make logs
 ```bash
 make help          # Show all commands
 make build         # Build Docker images
-make up            # Start services
+make up            # Start services (production)
+make up-dev        # Start with hot reload (development)
 make down          # Stop services
 make logs          # View logs
 make restart       # Restart services
+make rebuild       # Full rebuild (no cache)
 make clean         # Clean up everything
 ```
+
+**Note:** For MVP development, you'll mostly use `make build && make up`. The dev mode with hot reload is optional.
 
 ## Development
 

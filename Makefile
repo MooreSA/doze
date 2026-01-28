@@ -6,8 +6,11 @@ help: ## Show this help
 build: ## Build Docker images
 	docker-compose build
 
-up: ## Start services
+up: ## Start services (production mode)
 	docker-compose up -d
+
+up-dev: ## Start services (dev mode with hot reload)
+	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
 
 down: ## Stop services
 	docker-compose down
@@ -20,6 +23,11 @@ logs-api: ## Show API logs only
 
 restart: ## Restart services
 	docker-compose restart
+
+rebuild: ## Rebuild and restart
+	docker-compose down
+	docker-compose build --no-cache
+	docker-compose up -d
 
 test: ## Run tests (when we have them)
 	cd api && go test ./...

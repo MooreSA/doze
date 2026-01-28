@@ -1,0 +1,14 @@
+# Development override - for hot reload during development
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile.dev
+    volumes:
+      # Mount source for hot reload
+      - ./api:/app
+      - ./web:/web:ro
+    environment:
+      - DEV_MODE=true
