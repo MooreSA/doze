@@ -7,23 +7,23 @@
 - [x] Authenticate via browser OAuth (Max subscription)
 - [x] Test resume thoroughly
 - [x] Checkpoint as "base-authed"
-- [ ] Clone your main repo into Sprite
-- [ ] Install dependencies (npm install, go mod download, etc.)
-- [ ] Checkpoint as "repo-ready"
+- [x] Clone your main repo into Sprite
+- [x] Install dependencies (npm install, go mod download, etc.)
+- [x] Checkpoint as "repo-ready" (v2)
 - [ ] Document checkpoint names and sprite ID in config.yml
 
-**Deliverable:** Checkpointed Sprite you can restore that's ready to work
+**Deliverable:** Checkpointed Sprite you can restore that's ready to work ✓
 
 ---
 
-### Day 2: API Server Core
-- [ ] Go project setup (`go mod init`)
-- [ ] Add Sprites SDK dependency
-- [ ] Implement session state struct (ClaudeCmd, Stdin, State, LastActivity, IdleTimer)
-- [ ] POST /start endpoint - restore checkpoint, spawn `claude --cwd /workspace/repo`
-- [ ] GET /stream endpoint - SSE streaming of stdout
-- [ ] POST /message endpoint - write to stdin, reset idle timer
-- [ ] Capture session ID from Claude Code stdout/config
+### Day 2: API Server Core ✓
+- [x] Go project setup (`go mod init`)
+- [ ] Add Sprites SDK dependency (deferred - using local process for testing)
+- [x] Implement session state struct (ClaudeCmd, Stdin, State, LastActivity, IdleTimer)
+- [x] POST /start endpoint - spawn claude with stream-json mode
+- [x] GET /stream endpoint - SSE streaming of stdout
+- [x] POST /message endpoint - write to stdin, reset idle timer
+- [x] Capture session ID from Claude Code stdout/config
 - [ ] Deploy to Fly.io (or run locally for testing)
 
 **Test:**
