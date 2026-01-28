@@ -12,3 +12,4 @@ services:
       - ./web:/web:ro
     environment:
       - DEV_MODE=true
+    command: air -c .air.toml
