@@ -4,11 +4,24 @@ import { WelcomeScreen } from './WelcomeScreen';
 import { useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 
+function EmptyState() {
+  return (
+    <div className="flex-1 flex items-center justify-center">
+      <div className="text-center animate-fadeIn">
+        <p className="text-text-tertiary text-sm">
+          Session is active. Start typing below.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function MessageList() {
   const { messages, isTyping, state } = useSession();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const showWelcome = (state === SessionState.NONE || state === SessionState.STOPPED) && messages.length === 0;
+  const showEmpty = (state === SessionState.WAITING || state === SessionState.ACTIVE || state === SessionState.STARTING) && messages.length === 0;
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -57,9 +70,11 @@ export function MessageList() {
   };
 
   return (
-    <div className={`flex-1 overflow-y-auto flex flex-col relative z-10 ${showWelcome ? '' : 'p-4 gap-3'}`}>
+    <div className={`flex-1 overflow-y-auto flex flex-col relative z-10 ${showWelcome || showEmpty ? '' : 'p-4 gap-3'}`}>
       {showWelcome ? (
         <WelcomeScreen />
+      ) : showEmpty ? (
+        <EmptyState />
       ) : (
         <>
           {messages.map((msg) => {

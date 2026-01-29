@@ -63,7 +63,7 @@ export function WelcomeScreen() {
         />
       ))}
       <div className="max-w-[480px] text-center animate-fadeIn px-0 max-[600px]:px-md">
-        <div className="mb-lg">
+        <div className="mb-md">
           <svg
             viewBox="0 0 100 100"
             className="w-20 h-20 max-[600px]:w-16 max-[600px]:h-16 text-[#a78bfa] animate-float mx-auto"
@@ -82,13 +82,13 @@ export function WelcomeScreen() {
             <circle cx="45" cy="45" r="25" fill="currentColor" mask="url(#crescentMask)" />
           </svg>
         </div>
-        <h1 className="text-5xl max-[600px]:text-4xl font-bold text-text-primary mb-sm tracking-tight">
+        <h1 className="text-5xl max-[600px]:text-4xl font-bold text-text-primary mb-1 tracking-tight">
           Doze
         </h1>
-        <p className="text-lg max-[600px]:text-base text-text-secondary mb-lg font-medium">
+        <p className="text-lg max-[600px]:text-base text-text-secondary mb-md font-medium">
           Remote Claude Code Interface
         </p>
-        <p className="text-sm max-[600px]:text-[13px] text-text-tertiary leading-relaxed mb-xl">
+        <p className="text-sm max-[600px]:text-[13px] text-text-tertiary leading-relaxed mb-lg">
           Wake up a session to interact with Claude Code remotely.
           Sessions drift back to sleep after 30 seconds of inactivity.
         </p>

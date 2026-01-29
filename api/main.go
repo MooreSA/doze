@@ -566,6 +566,104 @@ func startClaudeProcess(repoPath string) error {
 	return nil
 }
 
+// startClaudeProcessWithMessage spawns a new Claude Code process and sends an initial message.
+//
+// Similar to startClaudeProcess, but transitions directly to StateActive and sends
+// the provided message immediately after the process starts. This allows users to
+// "wake up" the application by sending a message directly from the welcome screen.
+//
+// The session.mu lock must NOT be held when calling this function.
+func startClaudeProcessWithMessage(repoPath, initialMessage string) error {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	session.State = StateStarting
+	session.RepoPath = repoPath
+	session.LastActivity = time.Now()
+
+	// Broadcast state change to connected clients
+	broadcastState(StateStarting)
+
+	// Build command - use stream-json for bidirectional streaming
+	args := []string{
+		"--print",
+		"--input-format=stream-json",
+		"--output-format=stream-json",
+		"--verbose",
+	}
+	if SkipPermissions {
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	cmd := exec.Command("claude", args...)
+	cmd.Dir = repoPath
+
+	// Get pipes for stdin/stdout/stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		session.State = StateNone
+		return fmt.Errorf("failed to get stdin pipe: %w", err)
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		session.State = StateNone
+		return fmt.Errorf("failed to get stdout pipe: %w", err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		session.State = StateNone
+		return fmt.Errorf("failed to get stderr pipe: %w", err)
+	}
+
+	session.cmd = cmd
+	session.stdin = stdin
+	session.stdout = stdout
+	session.stderr = stderr
+
+	// Start the process
+	if err := cmd.Start(); err != nil {
+		session.State = StateNone
+		return fmt.Errorf("failed to start claude: %w", err)
+	}
+
+	slog.Info("claude process started with initial message", "pid", cmd.Process.Pid, "repo_path", repoPath)
+
+	// Start goroutines to handle I/O (these run until process exits)
+	go handleStdout()
+	go handleStderr()
+	go waitForExit()
+
+	// Transition to active state (we're about to send a message)
+	session.State = StateActive
+	broadcastState(StateActive)
+
+	// Send the initial message immediately
+	inputMsg := map[string]interface{}{
+		"type": MessageTypeUser,
+		"message": map[string]interface{}{
+			"role":    MessageTypeUser,
+			"content": initialMessage,
+		},
+	}
+	msgBytes, err := json.Marshal(inputMsg)
+	if err != nil {
+		slog.Error("failed to marshal initial message", "error", err)
+		return fmt.Errorf("failed to format initial message: %w", err)
+	}
+
+	// Write JSON message to stdin
+	_, err = fmt.Fprintf(stdin, "%s\n", msgBytes)
+	if err != nil {
+		slog.Error("failed to write initial message to stdin", "error", err)
+		return fmt.Errorf("failed to send initial message: %w", err)
+	}
+
+	slog.Info("initial message sent", "message", initialMessage)
+
+	return nil
+}
+
 // resumeClaudeProcess resumes a stopped Claude Code session with --resume.
 //
 // Similar to startClaudeProcess, but uses the stored session ID to resume
@@ -1405,11 +1503,11 @@ func detectAndBroadcastFileChanges() {
 // Response on error:
 //
 //	{
-//	  "error": "no active session, call /start first"
+//	  "error": "session is starting, please wait"
 //	}
 //
 // State handling:
-//   - StateNone: Returns error (must call /start first)
+//   - StateNone: Starts a new session and sends the message immediately
 //   - StateStopped: Triggers resume flow - spawns `claude --resume {session-id}`
 //   - StateStarting: Returns error (wait for session to be ready)
 //   - StateActive/StateWaiting: Sends message to Claude via stdin
@@ -1445,8 +1543,33 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	// Handle based on current state
 	switch state {
 	case StateNone:
-		// No session exists - user must call /start first
-		respondError(w, http.StatusBadRequest, "no active session, call /start first")
+		// No session exists - start a new session with this message
+		slog.Info("starting new session from message", "message", req.Content)
+
+		// Get repo path from environment or use current directory
+		repoPath := os.Getenv("REPO_PATH")
+		if repoPath == "" {
+			var err error
+			repoPath, err = os.Getwd()
+			if err != nil {
+				respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to get working directory: %v", err))
+				return
+			}
+		}
+
+		// Start the session with the queued message
+		if err := startClaudeProcessWithMessage(repoPath, req.Content); err != nil {
+			slog.Error("failed to start session with message", "error", err)
+			respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to start session: %v", err))
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"queued":  true,
+			"started": true,
+			"state":   StateActive,
+		})
 		return
 
 	case StateStopped:
@@ -1482,6 +1605,14 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 			slog.Error("stdin not available", "state", state)
 			respondError(w, http.StatusInternalServerError, "stdin not available")
 			return
+		}
+
+		// Handle /clear command - clear ring buffer
+		if strings.TrimSpace(req.Content) == "/clear" {
+			session.mu.Lock()
+			session.outputBuffer = NewRingBuffer(RingBufferSize)
+			session.mu.Unlock()
+			slog.Info("cleared ring buffer due to /clear command")
 		}
 
 		// Format message as JSON for stream-json input

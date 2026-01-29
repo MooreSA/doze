@@ -26,7 +26,8 @@ export function InputBox() {
     setShowAutocomplete(false);
   };
 
-  const isDisabled = state === SessionState.NONE || state === SessionState.STARTING || state === SessionState.SHUTTING_DOWN;
+  // Only disable during shutdown - backend auto-starts/resumes on message
+  const isDisabled = state === SessionState.SHUTTING_DOWN;
 
   // Filter commands based on input
   const filteredCommands = text.startsWith('/') && text.length > 0
