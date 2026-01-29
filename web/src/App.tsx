@@ -5,13 +5,24 @@ import { InputBox } from './components/InputBox';
 import { useMemo } from 'react';
 
 const generateStars = (count: number) => {
-  return Array.from({ length: count }, () => ({
-    top: Math.random() * 100,
-    left: Math.random() * 100,
-    size: 1 + Math.random() * 2,
-    delay: Math.random() * 2,
-    duration: 2 + Math.random() * 3,
-  }));
+  return Array.from({ length: count }, () => {
+    // Random movement pattern for each star
+    const moveX = (Math.random() - 0.5) * 40; // -20 to +20 pixels
+    const moveY = (Math.random() - 0.5) * 40; // -20 to +20 pixels
+    const moveDuration = 8 + Math.random() * 8; // 8-16 seconds
+
+    return {
+      top: Math.random() * 100,
+      left: Math.random() * 100,
+      size: 1 + Math.random() * 2,
+      delay: Math.random() * 2,
+      duration: 2 + Math.random() * 3, // twinkle duration
+      moveX,
+      moveY,
+      moveDuration,
+      moveDelay: Math.random() * 5, // stagger the start
+    };
+  });
 };
 
 function AppContent() {
@@ -28,20 +39,22 @@ function AppContent() {
         `
       }}
     >
-      {/* Twinkling stars */}
+      {/* Moving and twinkling stars */}
       {stars.map((star, i) => (
         <div
           key={i}
-          className="absolute rounded-full bg-white animate-pulse pointer-events-none"
+          className="absolute rounded-full bg-white pointer-events-none"
           style={{
             top: `${star.top}%`,
             left: `${star.left}%`,
             width: `${star.size}px`,
             height: `${star.size}px`,
-            animationDuration: `${star.duration}s`,
-            animationDelay: `${star.delay}s`,
             opacity: 0.4 + Math.random() * 0.6,
             zIndex: 0,
+            animation: `pulse ${star.duration}s ease-in-out ${star.delay}s infinite, float-star ${star.moveDuration}s ease-in-out ${star.moveDelay}s infinite alternate`,
+            // CSS variables for the float animation
+            ['--move-x' as any]: `${star.moveX}px`,
+            ['--move-y' as any]: `${star.moveY}px`,
           }}
         />
       ))}

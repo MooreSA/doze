@@ -75,6 +75,9 @@ export function MessageList() {
               );
             }
 
+            // Check if user message is a slash command
+            const isSlashCommand = msg.role === 'user' && msg.content.trim().startsWith('/');
+
             return (
               <div
                 key={msg.id}
@@ -83,14 +86,19 @@ export function MessageList() {
                 <div
                   className={`px-4 py-3 rounded-md ${
                     msg.role === 'user'
-                      ? 'bg-accent-primary text-white'
+                      ? isSlashCommand
+                        ? 'bg-purple-600/30 border border-purple-500/50 text-purple-200'
+                        : 'bg-accent-primary text-white'
                       : 'bg-bg-tertiary border border-border-subtle'
                   } ${msg.role === 'assistant' ? 'prose prose-invert prose-sm max-w-none' : ''}`}
                 >
+                  {isSlashCommand && (
+                    <span className="text-purple-400 font-mono mr-1">⚡</span>
+                  )}
                   {msg.role === 'assistant' ? (
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
                   ) : (
-                    msg.content
+                    <span className={isSlashCommand ? 'font-mono' : ''}>{msg.content}</span>
                   )}
                 </div>
               </div>

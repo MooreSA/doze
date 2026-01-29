@@ -15,6 +15,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,9 +23,11 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -282,6 +285,7 @@ func main() {
 	}
 
 	// API endpoints
+	http.HandleFunc("/health", handleHealth)   // GET: Health check endpoint
 	http.HandleFunc("/status", handleStatus)   // GET: Check session status
 	http.HandleFunc("/start", handleStart)     // POST: Start a new Claude session
 	http.HandleFunc("/stream", handleStream)   // GET: SSE stream of output and state
@@ -291,11 +295,59 @@ func main() {
 	// Serve web UI
 	http.HandleFunc("/", handleIndex)
 
-	slog.Info("server listening", "port", port, "endpoints", []string{"/status", "/start", "/stream", "/message"})
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		slog.Error("server failed to start", "error", err)
+	// Set up graceful shutdown
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: http.DefaultServeMux,
+	}
+
+	// Channel to listen for interrupt signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
+	// Start server in a goroutine
+	go func() {
+		slog.Info("server listening", "port", port, "endpoints", []string{"/health", "/status", "/start", "/stream", "/message"})
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server error", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for interrupt signal
+	sig := <-sigChan
+	slog.Info("received shutdown signal", "signal", sig)
+
+	// Gracefully stop Claude session if running
+	sessionMu.Lock()
+	if session.State == StateWaiting || session.State == StateActive {
+		slog.Info("stopping claude session before shutdown")
+		stopSession()
+	}
+	sessionMu.Unlock()
+
+	// Shutdown HTTP server with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		slog.Error("server shutdown error", "error", err)
 		os.Exit(1)
 	}
+
+	slog.Info("server shutdown complete")
+}
+
+// handleHealth returns a simple health check response.
+//
+// GET /health
+//
+// Always returns 200 OK with {"status": "ok"} if the server is running.
+// Used by load balancers, Docker health checks, and monitoring tools.
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]string{
+		"status": "ok",
+	})
 }
 
 // handleStatus returns the current session status as JSON.
@@ -636,16 +688,19 @@ func resumeClaudeProcess(queuedMessage string) error {
 //   - "result": Indicates completion of a response (SessionID captured here)
 //   - "error": Contains error information in Result
 //   - "system": Internal messages (not shown to user)
+//   - "user": Echo of user input (including tool results and replay messages)
 //
 // The SessionID field is critical for resume functionality - it's captured
 // and stored in session.ClaudeSessionID for later use with --resume.
+//
+// The Message field uses json.RawMessage to handle different structures:
+//   - For "assistant" messages: {content: [{type, text}]}
+//   - For "user" messages: {role: "user", content: "text"}
 type ClaudeStreamMessage struct {
-	Type      string `json:"type"`                 // Message type: "assistant", "result", "error", "system"
-	SessionID string `json:"session_id,omitempty"` // Session ID for --resume (appears in result messages)
-	Result    string `json:"result,omitempty"`     // Final result text or error message
-	Message   struct {
-		Content []ContentBlock `json:"content"`
-	} `json:"message,omitempty"` // Present in "assistant" messages
+	Type      string          `json:"type"`                 // Message type: "assistant", "result", "error", "system", "user"
+	SessionID string          `json:"session_id,omitempty"` // Session ID for --resume (appears in result messages)
+	Result    string          `json:"result,omitempty"`     // Final result text or error message
+	Message   json.RawMessage `json:"message,omitempty"`    // Raw message data (structure varies by type)
 }
 
 // ContentBlock represents a block of content in a message.
@@ -714,8 +769,17 @@ func handleStdout() {
 		var content string
 		switch msg.Type {
 		case MessageTypeAssistant:
+			// Parse the message content (assistant messages have content blocks)
+			var assistantMsg struct {
+				Content []ContentBlock `json:"content"`
+			}
+			if err := json.Unmarshal(msg.Message, &assistantMsg); err != nil {
+				slog.Warn("failed to parse assistant message", "error", err)
+				continue
+			}
+
 			// Extract content from message content blocks
-			for _, c := range msg.Message.Content {
+			for _, c := range assistantMsg.Content {
 				switch c.Type {
 				case ContentTypeText:
 					content += c.Text

@@ -8,6 +8,7 @@ interface SessionContextType {
   isTyping: boolean;
   sendMessage: (text: string) => Promise<void>;
   startSession: () => Promise<void>;
+  clearMessages: () => void;
 }
 
 const SessionContext = createContext<SessionContextType | null>(null);
@@ -25,6 +26,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     es.addEventListener('state', (e) => {
       const data = JSON.parse(e.data);
       setState(data.state);
+
+      // Turn off typing indicator when returning to waiting state
+      // (handles slash commands like /clear that don't produce output)
+      if (data.state === 'waiting') {
+        setIsTyping(false);
+      }
     });
 
     es.addEventListener('output', (e) => {
@@ -143,6 +150,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const sendMessage = async (text: string) => {
     if (!text.trim()) return;
 
+    // Handle /clear command on frontend
+    if (text.trim() === '/clear') {
+      setMessages([]);
+      setFileChanges([]);
+      setCurrentAssistantMessage('');
+    }
+
     // Add user message to messages array
     setMessages(prev => [...prev, {
       id: Date.now().toString(),
@@ -165,8 +179,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const clearMessages = () => {
+    setMessages([]);
+    setFileChanges([]);
+    setCurrentAssistantMessage('');
+  };
+
   return (
-    <SessionContext.Provider value={{ state, messages, fileChanges, isTyping, sendMessage, startSession }}>
+    <SessionContext.Provider value={{ state, messages, fileChanges, isTyping, sendMessage, startSession, clearMessages }}>
       {children}
     </SessionContext.Provider>
   );
