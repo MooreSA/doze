@@ -75,15 +75,18 @@ curl -X POST http://localhost:8080/message -d '{"content":"list files"}'
 
 ---
 
-### Day 5: HTML UI
-- [ ] Create single HTML page (no framework, vanilla JS)
-- [ ] Terminal output div (monospace, dark theme, auto-scroll)
-- [ ] Input field (mobile-friendly, font-size: 16px to prevent iOS zoom)
-- [ ] Status indicator showing current state (active/waiting/stopped)
-- [ ] EventSource connection to GET /stream
-- [ ] POST to /message on Enter key
-- [ ] Auto-reconnect on disconnect
-- [ ] Serve static HTML from Go server
+### Day 5: HTML UI ✓
+- [x] Create single HTML page (no framework, vanilla JS)
+- [x] Terminal output div (monospace, dark theme, auto-scroll)
+- [x] Input field (mobile-friendly, font-size: 16px to prevent iOS zoom)
+- [x] Status indicator showing current state (active/waiting/stopped)
+- [x] EventSource connection to GET /stream
+- [x] POST to /message on Enter key
+- [x] Auto-reconnect on disconnect
+- [x] Serve static HTML from Go server
+- [x] Auto-start session on first message
+- [x] Display user messages and tool usage
+- [x] Polished UI with gradients and smooth animations
 
 **Test on actual phone:**
 - [ ] Open in Safari (iOS)
