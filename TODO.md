@@ -2,23 +2,17 @@
 
 ## Week 1: MVP Build
 
-### Day 1: Sprite Setup ✓
-- [x] Create base Sprite with Claude Code
-- [x] Authenticate via browser OAuth (Max subscription)
-- [x] Test resume thoroughly
-- [x] Checkpoint as "base-authed"
-- [x] Clone your main repo into Sprite
-- [x] Install dependencies (npm install, go mod download, etc.)
-- [x] Checkpoint as "repo-ready" (v2)
-- [ ] Document checkpoint names and sprite ID in config.yml
+### Day 1: Environment Setup ✓
+- [x] Go project setup (`go mod init`)
+- [x] Test Claude Code session resume locally
+- [x] Verify session persistence in ~/.claude/
+- [x] Clone/access your main repo for testing
 
-**Deliverable:** Checkpointed Sprite you can restore that's ready to work ✓
+**Deliverable:** Local environment ready for development ✓
 
 ---
 
 ### Day 2: API Server Core ✓
-- [x] Go project setup (`go mod init`)
-- [ ] Add Sprites SDK dependency (deferred - using local process for testing)
 - [x] Implement session state struct (ClaudeCmd, Stdin, State, LastActivity, IdleTimer)
 - [x] POST /start endpoint - spawn claude with stream-json mode
 - [x] GET /stream endpoint - SSE streaming of stdout
@@ -37,31 +31,29 @@ curl -X POST http://localhost:8080/message -d '{"content":"list files"}'
 
 ---
 
-### Day 3: Idle Detection & Hibernate
+### Day 3: Idle Detection & Shutdown
 - [ ] Parse stdout for Claude prompt patterns (readline cursor, `>`, no output for 2s)
-- [ ] Implement state machine: ACTIVE → WAITING → HIBERNATING → HIBERNATED
+- [ ] Implement state machine: ACTIVE → WAITING → SHUTTING_DOWN → STOPPED
 - [ ] Start 3-minute idle timer when state becomes WAITING
 - [ ] On timeout: send SIGTERM to Claude Code process
-- [ ] Wait for graceful shutdown (up to 10s)
-- [ ] Call Sprites SDK checkpoint
-- [ ] Update state to HIBERNATED
+- [ ] Wait for graceful shutdown (up to 10s), then SIGKILL if needed
+- [ ] Update state to STOPPED
 - [ ] Add logging for all state transitions
 
 **Test:**
 - Send message, wait for response
 - Verify state transitions to WAITING
 - Wait 3+ minutes (or set timer to 30s for testing)
-- Verify SIGTERM sent and checkpoint created
-- Check Sprite is stopped (no cost)
+- Verify SIGTERM sent and process stops
+- Check Claude Code process is no longer running
 
-**Deliverable:** Sessions automatically hibernate when idle
+**Deliverable:** Sessions automatically stop when idle (no background cost)
 
 ---
 
 ### Day 4: Resume Flow
-- [ ] POST /message when hibernated → trigger resume
-- [ ] Restore Sprite from checkpoint via SDK
-- [ ] Run `claude --resume {session-id}` (pass ID directly, don't rely on list)
+- [ ] POST /message when STOPPED → trigger resume
+- [ ] Spawn new Claude process: `claude --resume {session-id}`
 - [ ] Wait for Claude to be ready (detect prompt)
 - [ ] Inject queued user message to stdin
 - [ ] Update state to ACTIVE
@@ -71,13 +63,15 @@ curl -X POST http://localhost:8080/message -d '{"content":"list files"}'
 **Test:**
 - Start session, send message: "List files"
 - Wait for response
-- Wait for hibernate (3+ min or short timeout)
+- Wait for idle timeout (3+ min or 30s for testing)
+- Verify process stops
 - Send new message: "Tell me about main.go"
-- Verify session resumes
+- Verify new Claude process starts with --resume
 - Verify Claude has context from previous messages
 - Check logs for session ID usage
 
-**Deliverable:** Sessions resume seamlessly after hibernation
+**Deliverable:** Sessions resume seamlessly after idle shutdown
+**Note:** Session persistence relies on Claude's ~/.claude/ storage, code changes use git
 
 ---
 
@@ -85,7 +79,7 @@ curl -X POST http://localhost:8080/message -d '{"content":"list files"}'
 - [ ] Create single HTML page (no framework, vanilla JS)
 - [ ] Terminal output div (monospace, dark theme, auto-scroll)
 - [ ] Input field (mobile-friendly, font-size: 16px to prevent iOS zoom)
-- [ ] Status indicator showing current state (active/waiting/hibernated)
+- [ ] Status indicator showing current state (active/waiting/stopped)
 - [ ] EventSource connection to GET /stream
 - [ ] POST to /message on Enter key
 - [ ] Auto-reconnect on disconnect
@@ -109,10 +103,10 @@ curl -X POST http://localhost:8080/message -d '{"content":"list files"}'
 - [ ] Use for actual coding task #3
 
 **Track in a notes file:**
-- How many times did it hibernate?
+- How many times did it stop due to idle?
 - How many times did resume work vs fail?
-- What was the total active time vs hibernated time?
-- Estimated cost for the week
+- What was the total active time vs stopped time?
+- Estimated cost for the week (API usage only)
 - What felt annoying? (typing? seeing output? something else?)
 - What feature did you miss most?
 
@@ -124,7 +118,7 @@ curl -X POST http://localhost:8080/message -d '{"content":"list files"}'
 
 ### Review Session
 - [ ] Review logs from Week 1 usage
-- [ ] Calculate actual costs (Sprite active hours × rate)
+- [ ] Calculate actual costs (Claude API usage only)
 - [ ] Check resume reliability (success rate)
 - [ ] List pain points by severity
 
@@ -139,7 +133,7 @@ Based on Week 1 data, choose next priority:
 **Option B: Resume needs work**
 - [ ] Implement graceful fallback (fresh start with context)
 - [ ] Or: increase idle timeout to 10-15 min
-- [ ] Or: add manual hibernate/resume controls
+- [ ] Or: add manual stop/resume controls
 
 **Option C: Add most-missed feature**
 - [ ] Voice input (Web Speech API)
@@ -149,20 +143,35 @@ Based on Week 1 data, choose next priority:
 
 ---
 
+## Architecture Notes
+
+**Simplified Model:**
+- Claude Code runs as local process (no Sprites/VMs needed)
+- Session state: stored by Claude in ~/.claude/
+- Code changes: persisted via git commits
+- On idle: process stops (no cost)
+- On resume: spawn fresh Claude process with `--resume {session-id}`
+
+**Cost Model:**
+- Only pay for active API usage (no idle VM costs)
+- Host server can be cheap (just routing I/O)
+
+---
+
 ## Future Features (Not MVP)
 
 ### High Priority (Week 3-4)
 - [ ] Bearer token auth for public deploy
-- [ ] Ntfy push notifications (Claude waiting, session hibernated)
+- [ ] Ntfy push notifications (Claude waiting, session stopped)
 - [ ] Output buffer / replay (10KB ring buffer for reconnection)
-- [ ] Better error handling (Sprite fails to start, Claude crashes)
-- [ ] Session persistence (SQLite) so server restart doesn't lose session
+- [ ] Better error handling (Claude crashes, resume fails)
+- [ ] Session metadata persistence (SQLite) so server restart knows last session ID
 
 ### Medium Priority (Week 5-6)
 - [ ] Voice input (Web Speech API, tap to talk)
 - [ ] GitHub repo selector (list repos via API)
 - [ ] Multiple concurrent sessions
-- [ ] Manual hibernate/resume controls in UI
+- [ ] Manual stop/resume controls in UI
 
 ### Low Priority (Later)
 - [ ] QR code pairing
@@ -183,7 +192,8 @@ Based on Week 1 data, choose next priority:
 ### Cost Tracking
 - Week 1 total: $___
 - Average per session: $___
-- Hibernated % of time: ___%
+- Stopped % of time: ___%
+- Note: Cost = Claude API usage only (no VM/Sprite costs)
 
 ### Pain Points
 1. [fill in after real usage]
@@ -203,22 +213,22 @@ repo:
   name: "my-repo"
   path: "/workspace/my-repo"
 
-sprites:
-  base_checkpoint: "base-authed"
-  repo_checkpoint: "repo-ready"
-  org_slug: "personal"
+claude:
+  binary: "claude"        # or full path to claude binary
+  working_dir: "/workspace/my-repo"
 
 timeouts:
   idle_seconds: 180        # 3 minutes (or 30 for testing)
-  hibernate_grace: 10
+  shutdown_grace: 10       # wait for SIGTERM before SIGKILL
   resume_timeout: 30
 
 server:
   port: 8080
+  bearer_token: ""         # leave empty for no auth (dev only)
 ```
 
 ### .env (for local testing)
 ```bash
-FLY_API_TOKEN=xxx
-SPRITES_ORG_SLUG=personal
+# No external dependencies needed for MVP
+# Git credentials should already be configured on the host
 ```
