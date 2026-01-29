@@ -18,7 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -36,14 +36,14 @@ const (
 	DefaultWebPath  = "../web"
 
 	// Buffer sizes
-	RingBufferSize        = 10 * 1024   // 10KB ring buffer for output
-	ScannerInitialBuffer  = 64 * 1024   // 64KB initial scanner buffer
-	ScannerMaxBuffer      = 1024 * 1024 // 1MB max scanner buffer
-	SSEClientBufferSize   = 100         // Number of events to buffer per SSE client
-	StderrReadBufferSize  = 1024        // Buffer size for stderr reads
+	RingBufferSize       = 10 * 1024   // 10KB ring buffer for output
+	ScannerInitialBuffer = 64 * 1024   // 64KB initial scanner buffer
+	ScannerMaxBuffer     = 1024 * 1024 // 1MB max scanner buffer
+	SSEClientBufferSize  = 100         // Number of events to buffer per SSE client
+	StderrReadBufferSize = 1024        // Buffer size for stderr reads
 
 	// Timeouts
-	DefaultIdleTimeout      = 3 * time.Minute  // Idle timeout before hibernation
+	DefaultIdleTimeout      = 30 * time.Second // Idle timeout before stopping session
 	GracefulShutdownTimeout = 10 * time.Second // Time to wait for SIGTERM before SIGKILL
 
 	// Message types from Claude stream-json
@@ -71,11 +71,14 @@ const (
 //
 // State transitions follow this flow:
 //
-//	StateNone → StateStarting → StateActive ⇄ StateWaiting → StateHibernating → StateHibernated
+//	StateNone → StateStarting → StateWaiting ⇄ StateActive → StateShuttingDown → StateStopped
+//	                               ↑              ↓
+//	                               └──────────────┘
 //
-// StateActive and StateWaiting can transition back and forth as Claude processes
-// messages and waits for input. When idle timeout is reached in StateWaiting,
-// the session transitions to StateHibernating and eventually StateHibernated.
+// - Process starts in StateWaiting (ready for first input, idle timer starts)
+// - User message → StateActive (Claude processing)
+// - Response complete → StateWaiting (ready for next input)
+// - Idle timeout in StateWaiting → StateShuttingDown → StateStopped
 type SessionState string
 
 const (
@@ -92,13 +95,13 @@ const (
 	// The idle timer starts when entering this state.
 	StateWaiting SessionState = "waiting"
 
-	// StateHibernating indicates the session is in the process of shutting down due to idle timeout.
+	// StateShuttingDown indicates the session is in the process of shutting down due to idle timeout.
 	// A SIGTERM has been sent to the Claude process.
-	StateHibernating SessionState = "hibernating"
+	StateShuttingDown SessionState = "shutting_down"
 
-	// StateHibernated indicates the session has been stopped and the process has exited.
-	// TODO: This will transition to StateStopped in the simplified architecture.
-	StateHibernated SessionState = "hibernated"
+	// StateStopped indicates the session has been stopped and the process has exited.
+	// Can be resumed later by spawning a new process with --resume {session-id}.
+	StateStopped SessionState = "stopped"
 )
 
 // SSEClient represents a connected Server-Sent Events (SSE) client.
@@ -219,7 +222,7 @@ type Session struct {
 
 	// Idle detection
 	idleTimer   *time.Timer   // Timer that fires when idle timeout is reached
-	idleTimeout time.Duration // How long to wait before hibernating (default: 3 minutes)
+	idleTimeout time.Duration // How long to wait before stopping session (default: 3 minutes)
 }
 
 // Global session (single session for MVP).
@@ -235,7 +238,9 @@ func respondJSON(w http.ResponseWriter, statusCode int, data interface{}) {
 		w.WriteHeader(statusCode)
 	}
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("Error encoding JSON response (status %d): %v", statusCode, err)
+		slog.Error("failed to encode json response",
+			"status_code", statusCode,
+			"error", err)
 	}
 }
 
@@ -253,8 +258,14 @@ func main() {
 		port = DefaultPort
 	}
 
-	log.SetFlags(log.Ltime | log.Lshortfile)
-	log.Println("Doze API Server starting...")
+	// Set up structured logging
+	// Use text handler for development, can switch to JSON for production
+	logHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo, // Change to LevelDebug for verbose logging
+	})
+	slog.SetDefault(slog.New(logHandler))
+
+	slog.Info("doze api server starting", "port", port)
 
 	// Initialize global session with defaults
 	session = &Session{
@@ -273,8 +284,11 @@ func main() {
 	// Serve web UI
 	http.HandleFunc("/", handleIndex)
 
-	log.Printf("Listening on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	slog.Info("server listening", "port", port, "endpoints", []string{"/status", "/start", "/stream", "/message"})
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		slog.Error("server failed to start", "error", err)
+		os.Exit(1)
+	}
 }
 
 // handleStatus returns the current session status as JSON.
@@ -348,7 +362,7 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 	defer sessionMu.Unlock()
 
 	// Check if session already running
-	if session.State != StateNone && session.State != StateHibernated {
+	if session.State != StateNone && session.State != StateStopped {
 		respondJSON(w, http.StatusConflict, map[string]interface{}{
 			"error": "session already active",
 			"state": session.State,
@@ -361,7 +375,7 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 		RepoPath string `json:"repo_path"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("Error decoding start request body: %v", err)
+		slog.Warn("failed to decode start request body", "error", err)
 		// Continue with empty req - repo path is optional
 	}
 
@@ -384,7 +398,7 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 
 	// Start Claude Code process
 	if err := startClaudeProcess(repoPath); err != nil {
-		log.Printf("Failed to start Claude process: %v", err)
+		slog.Error("failed to start claude process", "error", err)
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -464,15 +478,21 @@ func startClaudeProcess(repoPath string) error {
 		return fmt.Errorf("failed to start claude: %w", err)
 	}
 
-	log.Printf("Claude process started with PID %d", cmd.Process.Pid)
+	slog.Info("claude process started", "pid", cmd.Process.Pid, "repo_path", repoPath)
 
 	// Start goroutines to handle I/O (these run until process exits)
 	go handleStdout()
 	go handleStderr()
 	go waitForExit()
 
-	session.State = StateActive
-	broadcastState(StateActive)
+	// Claude starts in waiting state (ready for first input)
+	// StateActive is only when Claude is actively processing
+	session.State = StateWaiting
+	broadcastState(StateWaiting)
+
+	// Start idle timer immediately - session will stop if no activity
+	resetIdleTimer()
+	slog.Info("session ready", "state", StateWaiting, "idle_timeout", session.idleTimeout)
 
 	return nil
 }
@@ -548,10 +568,10 @@ func handleStdout() {
 		var msg ClaudeStreamMessage
 		if err := json.Unmarshal([]byte(line), &msg); err != nil {
 			// Not JSON, broadcast as raw output (shouldn't happen with stream-json)
-			log.Printf("Non-JSON stdout: %s", line)
+			slog.Warn("received non-json stdout", "content", line)
 			session.mu.Lock()
 			if _, writeErr := session.outputBuffer.Write([]byte(line + "\n")); writeErr != nil {
-				log.Printf("Error writing to output buffer: %v", writeErr)
+				slog.Error("failed to write to output buffer", "error", writeErr)
 			}
 			session.mu.Unlock()
 			broadcastOutput(line + "\n")
@@ -570,7 +590,7 @@ func handleStdout() {
 				case ContentTypeToolUse:
 					// Tool usage - broadcast as info event for user visibility
 					toolMsg := formatToolUse(c.Name, c.Input)
-					log.Printf("Tool use: %s with input: %v", c.Name, c.Input)
+					slog.Debug("tool use detected", "tool", c.Name, "input", c.Input)
 					broadcastEvent(SSEEvent{Type: EventTypeInfo, Content: toolMsg})
 				}
 			}
@@ -579,7 +599,7 @@ func handleStdout() {
 				session.mu.Lock()
 				session.ClaudeSessionID = msg.SessionID
 				session.mu.Unlock()
-				log.Printf("Captured session ID: %s", msg.SessionID)
+				slog.Info("captured session id", "session_id", msg.SessionID)
 			}
 
 		case MessageTypeResult:
@@ -594,9 +614,9 @@ func handleStdout() {
 			session.mu.Lock()
 			if session.State == StateActive {
 				session.State = StateWaiting
-				log.Println("Claude completed response, waiting for input")
+				slog.Info("state transition", "from", StateActive, "to", StateWaiting, "reason", "response_complete")
 				go broadcastState(StateWaiting)
-				resetIdleTimer() // Start countdown to hibernation
+				resetIdleTimer() // Start countdown to session stop
 			}
 			session.mu.Unlock()
 			continue // Don't output the result text
@@ -611,12 +631,12 @@ func handleStdout() {
 
 		case MessageTypeSystem:
 			// System messages are for debugging, not user-facing
-			log.Printf("System message: %s", line)
+			slog.Debug("system message received", "content", line)
 			continue
 
 		default:
 			// Log unknown types for debugging (helps if Claude adds new message types)
-			log.Printf("Unknown message type: %s, raw: %s", msg.Type, line)
+			slog.Warn("unknown message type", "type", msg.Type, "raw", line)
 			continue
 		}
 
@@ -624,7 +644,7 @@ func handleStdout() {
 		if content != "" {
 			session.mu.Lock()
 			if _, err := session.outputBuffer.Write([]byte(content)); err != nil {
-				log.Printf("Error writing to output buffer: %v", err)
+				slog.Error("failed to write to output buffer", "error", err)
 			}
 			session.mu.Unlock()
 			broadcastOutput(content)
@@ -633,7 +653,7 @@ func handleStdout() {
 
 	// Scanner error handling (usually EOF when process exits)
 	if err := scanner.Err(); err != nil {
-		log.Printf("stdout scanner error: %v", err)
+		slog.Error("stdout scanner error", "error", err)
 	}
 }
 
@@ -655,19 +675,19 @@ func handleStderr() {
 		n, err := reader.Read(buf)
 		if err != nil {
 			if err != io.EOF {
-				log.Printf("stderr read error: %v", err)
+				slog.Error("stderr read error", "error", err)
 			}
 			return
 		}
 
 		if n > 0 {
 			output := string(buf[:n])
-			log.Printf("stderr: %s", output)
+			slog.Debug("stderr output", "content", output)
 
 			// Broadcast stderr as output (users expect to see this in the terminal)
 			session.mu.Lock()
 			if _, err := session.outputBuffer.Write(buf[:n]); err != nil {
-				log.Printf("Error writing stderr to output buffer: %v", err)
+				slog.Error("failed to write stderr to output buffer", "error", err)
 			}
 			session.mu.Unlock()
 
@@ -681,7 +701,7 @@ func handleStderr() {
 // This goroutine blocks on cmd.Wait() until the process exits. It then:
 //  1. Logs the exit status
 //  2. Transitions state based on why we exited:
-//     - StateHibernating → StateHibernated (expected shutdown)
+//     - StateShuttingDown → StateStopped (expected shutdown)
 //     - Any other state → StateNone (unexpected crash)
 //  3. Cleans up process handles
 //
@@ -693,18 +713,20 @@ func waitForExit() {
 	defer session.mu.Unlock()
 
 	if err != nil {
-		log.Printf("Claude process exited with error: %v", err)
+		slog.Warn("claude process exited with error", "error", err)
 	} else {
-		log.Println("Claude process exited normally")
+		slog.Info("claude process exited normally")
 	}
 
-	// If we were hibernating, this is expected
-	if session.State == StateHibernating {
-		session.State = StateHibernated
-		broadcastState(StateHibernated)
+	// If we were shutting down, this is expected
+	if session.State == StateShuttingDown {
+		session.State = StateStopped
+		slog.Info("session stopped successfully", "session_id", session.ClaudeSessionID)
+		broadcastState(StateStopped)
 	} else {
 		// Unexpected exit (crash or user killed the process)
 		session.State = StateNone
+		slog.Error("unexpected process exit", "state", session.State, "session_id", session.ClaudeSessionID)
 		broadcastState(StateNone)
 		broadcastEvent(SSEEvent{Type: EventTypeError, Content: "Claude process exited unexpectedly"})
 	}
@@ -719,15 +741,15 @@ func waitForExit() {
 // resetIdleTimer cancels any existing timer and starts a new one.
 //
 // Called when Claude transitions to StateWaiting after completing a response.
-// When the timer fires, hibernate() is called to shut down the idle session.
+// When the timer fires, stopSession() is called to shut down the idle session.
 //
 // TODO: Make timeout configurable via config file or environment variable.
 func resetIdleTimer() {
 	cancelIdleTimer()
 
 	session.idleTimer = time.AfterFunc(session.idleTimeout, func() {
-		log.Println("Idle timeout reached, hibernating...")
-		hibernate()
+		slog.Info("idle timeout reached", "timeout", session.idleTimeout)
+		stopSession()
 	})
 }
 
@@ -743,36 +765,37 @@ func cancelIdleTimer() {
 	}
 }
 
-// hibernate shuts down an idle Claude session.
+// stopSession shuts down an idle Claude session.
 //
 // Sends SIGTERM to the Claude process for graceful shutdown. If the process
-// doesn't exit within 10 seconds, sends SIGKILL to force termination.
+// doesn't exit within the configured timeout, sends SIGKILL to force termination.
 //
-// Only hibernates if session is in StateWaiting (idle but ready). If called
+// Only stops if session is in StateWaiting (idle but ready). If called
 // in any other state, logs a warning and returns.
 //
-// TODO: In the simplified architecture, this will just stop the process.
 // The session can be resumed later by spawning `claude --resume {session-id}`.
-func hibernate() {
+// Session state is persisted by Claude in ~/.claude/, and code changes are
+// handled by git commits.
+func stopSession() {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 
 	if session.State != StateWaiting {
-		log.Println("Cannot hibernate: not in waiting state")
+		slog.Warn("cannot stop session", "state", session.State, "expected", StateWaiting)
 		return
 	}
 
-	session.State = StateHibernating
-	broadcastState(StateHibernating)
+	session.State = StateShuttingDown
+	broadcastState(StateShuttingDown)
 
 	// Send SIGTERM to Claude process for graceful shutdown
 	if session.cmd != nil && session.cmd.Process != nil {
-		log.Println("Sending SIGTERM to Claude process")
+		slog.Info("sending SIGTERM to claude process", "pid", session.cmd.Process.Pid)
 		if err := session.cmd.Process.Signal(os.Interrupt); err != nil {
-			log.Printf("Error sending SIGTERM to process: %v", err)
+			slog.Error("failed to send SIGTERM", "error", err)
 			// Try SIGKILL immediately if SIGTERM fails
 			if killErr := session.cmd.Process.Kill(); killErr != nil {
-				log.Printf("Error killing process: %v", killErr)
+				slog.Error("failed to kill process immediately", "error", killErr)
 			}
 			return
 		}
@@ -783,9 +806,9 @@ func hibernate() {
 			session.mu.Lock()
 			defer session.mu.Unlock()
 			if session.cmd != nil && session.cmd.Process != nil {
-				log.Println("Force killing Claude process (SIGTERM timeout)")
+				slog.Warn("force killing process after timeout", "timeout", GracefulShutdownTimeout)
 				if err := session.cmd.Process.Kill(); err != nil {
-					log.Printf("Error force killing process: %v", err)
+					slog.Error("failed to force kill process", "error", err)
 				}
 			}
 		}()
@@ -832,7 +855,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 	session.sseClients[clientID] = client
 	session.sseMu.Unlock()
 
-	log.Printf("SSE client connected: %s", clientID)
+	slog.Info("sse client connected", "client_id", clientID)
 
 	// Send current state and recent output (for reconnection)
 	session.mu.RLock()
@@ -863,7 +886,7 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 			delete(session.sseClients, clientID)
 			session.sseMu.Unlock()
 			close(client.done)
-			log.Printf("SSE client disconnected: %s", clientID)
+			slog.Info("sse client disconnected", "client_id", clientID)
 			return
 
 		case event := <-client.events:
@@ -885,11 +908,11 @@ func handleStream(w http.ResponseWriter, r *http.Request) {
 func sendSSE(w http.ResponseWriter, event SSEEvent) {
 	data, err := json.Marshal(event)
 	if err != nil {
-		log.Printf("Error marshaling SSE event: %v", err)
+		slog.Error("failed to marshal sse event", "error", err)
 		return
 	}
 	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
-		log.Printf("Error writing SSE event: %v", err)
+		slog.Error("failed to write sse event", "error", err)
 	}
 }
 
@@ -942,7 +965,7 @@ func broadcastEvent(event SSEEvent) {
 			// Event queued successfully
 		default:
 			// Client buffer full (client is slow or disconnected), skip this event
-			log.Printf("Client %s buffer full, skipping event", client.id)
+			slog.Warn("client buffer full, skipping event", "client_id", client.id)
 		}
 	}
 }
@@ -972,7 +995,7 @@ func broadcastEvent(event SSEEvent) {
 //
 // State handling:
 //   - StateNone: Returns error (must call /start first)
-//   - StateHibernated: TODO - will trigger resume flow
+//   - StateStopped: TODO - will trigger resume flow
 //   - StateStarting: Returns error (wait for session to be ready)
 //   - StateActive/StateWaiting: Sends message to Claude via stdin
 //
@@ -1011,11 +1034,11 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "no active session, call /start first")
 		return
 
-	case StateHibernated:
+	case StateStopped:
 		// Session was stopped due to idle timeout
 		// TODO: Implement resume flow - spawn `claude --resume {session-id}`
 		respondJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
-			"error":  "session is hibernated, resume not yet implemented",
+			"error":  "session is stopped, resume not yet implemented",
 			"queued": false,
 		})
 		return
@@ -1031,7 +1054,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	case StateActive, StateWaiting:
 		// Session is ready - send message to Claude
 		if stdin == nil {
-			log.Printf("Error: stdin not available in state %s", state)
+			slog.Error("stdin not available", "state", state)
 			respondError(w, http.StatusInternalServerError, "stdin not available")
 			return
 		}
@@ -1047,7 +1070,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		msgBytes, err := json.Marshal(inputMsg)
 		if err != nil {
-			log.Printf("Error marshaling input message: %v", err)
+			slog.Error("failed to marshal input message", "error", err)
 			respondError(w, http.StatusInternalServerError, "failed to format message")
 			return
 		}
@@ -1055,7 +1078,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		// Write JSON message to stdin (newline-delimited)
 		_, err = fmt.Fprintf(stdin, "%s\n", msgBytes)
 		if err != nil {
-			log.Printf("Error writing to stdin: %v", err)
+			slog.Error("failed to write to stdin", "error", err)
 			respondError(w, http.StatusInternalServerError, "failed to send message to Claude")
 			return
 		}
@@ -1065,7 +1088,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		session.LastActivity = time.Now()
 		if session.State == StateWaiting {
 			session.State = StateActive
-			cancelIdleTimer() // User is active again, don't hibernate
+			cancelIdleTimer() // User is active again, don't stop session
 			go broadcastState(StateActive)
 		}
 		session.mu.Unlock()
@@ -1078,7 +1101,7 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		// Unexpected state (should never happen)
-		log.Printf("Error: unexpected state: %s", state)
+		slog.Error("unexpected state", "state", state)
 		respondError(w, http.StatusInternalServerError, fmt.Sprintf("unexpected state: %s", state))
 	}
 }

@@ -31,14 +31,14 @@ curl -X POST http://localhost:8080/message -d '{"content":"list files"}'
 
 ---
 
-### Day 3: Idle Detection & Shutdown
-- [ ] Parse stdout for Claude prompt patterns (readline cursor, `>`, no output for 2s)
-- [ ] Implement state machine: ACTIVE → WAITING → SHUTTING_DOWN → STOPPED
-- [ ] Start 3-minute idle timer when state becomes WAITING
-- [ ] On timeout: send SIGTERM to Claude Code process
-- [ ] Wait for graceful shutdown (up to 10s), then SIGKILL if needed
-- [ ] Update state to STOPPED
-- [ ] Add logging for all state transitions
+### Day 3: Idle Detection & Shutdown ✓
+- [x] Parse stdout for Claude prompt patterns (uses stream-json "result" messages)
+- [x] Implement state machine: ACTIVE → WAITING → SHUTTING_DOWN → STOPPED
+- [x] Start 3-minute idle timer when state becomes WAITING (30s for testing)
+- [x] On timeout: send SIGTERM to Claude Code process
+- [x] Wait for graceful shutdown (up to 10s), then SIGKILL if needed
+- [x] Update state to STOPPED
+- [x] Add logging for all state transitions
 
 **Test:**
 - Send message, wait for response
@@ -163,7 +163,7 @@ Based on Week 1 data, choose next priority:
 ### High Priority (Week 3-4)
 - [ ] Bearer token auth for public deploy
 - [ ] Ntfy push notifications (Claude waiting, session stopped)
-- [ ] Output buffer / replay (10KB ring buffer for reconnection)
+- [x] Output buffer / replay (10KB ring buffer for reconnection)
 - [ ] Better error handling (Claude crashes, resume fails)
 - [ ] Session metadata persistence (SQLite) so server restart knows last session ID
 
