@@ -31,9 +31,8 @@ import (
 // Constants for configuration and magic strings
 const (
 	// Server defaults
-	DefaultPort     = "2020"
-	DefaultRepoPath = "/home/sprite/doze"
-	DefaultWebPath  = "../web"
+	DefaultPort    = "2020"
+	DefaultWebPath = "../web/dist"
 
 	// Buffer sizes
 	RingBufferSize       = 10 * 1024   // 10KB ring buffer for output
@@ -63,6 +62,7 @@ const (
 	EventTypeError       = "error"
 	EventTypeInfo        = "info"
 	EventTypeFileChanges = "file_changes"
+	EventTypeToolUse     = "tool_use"
 
 	// Display limits
 	StatusRecentOutputLimit = 500 // Characters of recent output to include in status endpoint
@@ -286,6 +286,7 @@ func main() {
 	http.HandleFunc("/start", handleStart)     // POST: Start a new Claude session
 	http.HandleFunc("/stream", handleStream)   // GET: SSE stream of output and state
 	http.HandleFunc("/message", handleMessage) // POST: Send a message to Claude
+	http.HandleFunc("/diff", handleDiff)       // GET: Get git diff for a specific file
 
 	// Serve web UI
 	http.HandleFunc("/", handleIndex)
@@ -385,13 +386,19 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 		// Continue with empty req - repo path is optional
 	}
 
-	// Determine repo path: request > env > default
+	// Determine repo path: request > env > current directory
 	repoPath := req.RepoPath
 	if repoPath == "" {
 		repoPath = os.Getenv("REPO_PATH")
 	}
 	if repoPath == "" {
-		repoPath = DefaultRepoPath
+		var err error
+		repoPath, err = os.Getwd()
+		if err != nil {
+			slog.Error("failed to get current directory", "error", err)
+			respondError(w, http.StatusInternalServerError, "failed to determine working directory")
+			return
+		}
 	}
 
 	// Expand tilde in path (e.g., ~/code -> /home/user/code)
@@ -528,7 +535,12 @@ func resumeClaudeProcess(queuedMessage string) error {
 	sessionID := session.ClaudeSessionID
 	repoPath := session.RepoPath
 	if repoPath == "" {
-		repoPath = DefaultRepoPath
+		// Fallback to current directory if session.RepoPath wasn't set
+		var err error
+		repoPath, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get current directory: %w", err)
+		}
 	}
 
 	session.State = StateStarting
@@ -708,10 +720,23 @@ func handleStdout() {
 				case ContentTypeText:
 					content += c.Text
 				case ContentTypeToolUse:
-					// Tool usage - broadcast as info event for user visibility
-					toolMsg := formatToolUse(c.Name, c.Input)
+					// Tool usage - broadcast structured data for rich display
 					slog.Debug("tool use detected", "tool", c.Name, "input", c.Input)
+
+					// Send structured tool use event
+					toolData := map[string]interface{}{
+						"tool":  c.Name,
+						"input": c.Input,
+					}
+					toolJSON, err := json.Marshal(toolData)
+					if err == nil {
+						broadcastEvent(SSEEvent{Type: EventTypeToolUse, Content: string(toolJSON)})
+					}
+
+					// Also send formatted message for backward compatibility
+					toolMsg := formatToolUse(c.Name, c.Input)
 					broadcastEvent(SSEEvent{Type: EventTypeInfo, Content: toolMsg})
+
 					// Track file edits in real-time
 					trackFileEdit(c.Name, c.Input)
 				}
@@ -1035,7 +1060,8 @@ func sendSSE(w http.ResponseWriter, event SSEEvent) {
 		slog.Error("failed to marshal sse event", "error", err)
 		return
 	}
-	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+	// Send SSE event with explicit event type so frontend addEventListener works
+	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, data); err != nil {
 		slog.Error("failed to write sse event", "error", err)
 	}
 }
@@ -1204,10 +1230,22 @@ func trackFileEdit(toolName string, input map[string]interface{}) {
 //
 // This allows the frontend to show users what files Claude modified.
 func detectAndBroadcastFileChanges() {
-	// Get the repo path
-	repoPath := DefaultRepoPath
-	if envPath := os.Getenv("REPO_PATH"); envPath != "" {
-		repoPath = envPath
+	// Get the repo path from session or env or current directory
+	session.mu.RLock()
+	repoPath := session.RepoPath
+	session.mu.RUnlock()
+
+	if repoPath == "" {
+		if envPath := os.Getenv("REPO_PATH"); envPath != "" {
+			repoPath = envPath
+		} else {
+			var err error
+			repoPath, err = os.Getwd()
+			if err != nil {
+				slog.Debug("failed to get current directory for git diff", "error", err)
+				return
+			}
+		}
 	}
 
 	// Run git status to detect changed files
@@ -1429,28 +1467,100 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleDiff returns the git diff for a specific file.
+//
+// GET /diff?file=path/to/file
+//
+// Query parameters:
+//   - file: Path to the file (required)
+//
+// Response on success:
+//
+//	{
+//	  "file": "path/to/file",
+//	  "diff": "... git diff output ..."
+//	}
+//
+// Response on error:
+//
+//	{
+//	  "error": "file parameter required"
+//	}
+func handleDiff(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	filePath := r.URL.Query().Get("file")
+	if filePath == "" {
+		respondError(w, http.StatusBadRequest, "file parameter required")
+		return
+	}
+
+	session.mu.RLock()
+	repoPath := session.RepoPath
+	session.mu.RUnlock()
+
+	if repoPath == "" {
+		respondError(w, http.StatusBadRequest, "no active session")
+		return
+	}
+
+	// Run git diff for the specific file
+	cmd := exec.Command("git", "diff", "HEAD", "--", filePath)
+	cmd.Dir = repoPath
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// If file is untracked, try showing it as a new file
+		if strings.Contains(string(output), "no such path") || strings.Contains(err.Error(), "exit status") {
+			// Try git diff for staged files
+			cmd = exec.Command("git", "diff", "--cached", "--", filePath)
+			cmd.Dir = repoPath
+			output, err = cmd.CombinedOutput()
+
+			if err != nil {
+				// If still fails, try to show the file as completely new
+				cmd = exec.Command("git", "diff", "/dev/null", filePath)
+				cmd.Dir = repoPath
+				output, _ = cmd.CombinedOutput()
+			}
+		}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"file": filePath,
+		"diff": string(output),
+	})
+}
+
 // handleIndex serves the web UI.
 //
 // GET /
 //
-// Serves the static HTML file from the web directory. The path can be configured
-// via the WEB_PATH environment variable, defaulting to "../web" (relative to the
-// api binary).
-//
-// Only serves index.html for the root path - other paths return 404.
+// Serves static files from the Vite build directory (dist/). The path can be
+// configured via the WEB_PATH environment variable, defaulting to "../web/dist".
+// Falls back to index.html for client-side routing.
 func handleIndex(w http.ResponseWriter, r *http.Request) {
-	// Only serve index for root path
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-
-	// Serve web UI from /web directory
+	// Get web directory path (Vite dist output)
 	webPath := os.Getenv("WEB_PATH")
 	if webPath == "" {
 		webPath = DefaultWebPath
 	}
 
+	// Construct file path
+	path := filepath.Join(webPath, r.URL.Path)
+
+	// Check if file exists
+	info, err := os.Stat(path)
+	if err == nil && !info.IsDir() {
+		// File exists, serve it
+		http.ServeFile(w, r, path)
+		return
+	}
+
+	// File doesn't exist or is directory, serve index.html for SPA routing
 	indexPath := filepath.Join(webPath, "index.html")
 	http.ServeFile(w, r, indexPath)
 }

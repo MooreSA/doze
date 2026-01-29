@@ -15,6 +15,7 @@ export const EventType = {
   ERROR: 'error',
   INFO: 'info',
   FILE_CHANGES: 'file_changes',
+  TOOL_USE: 'tool_use',
 } as const;
 
 export interface Message {
@@ -23,6 +24,7 @@ export interface Message {
   content: string;
   timestamp: number;
   toolName?: string; // For tool messages
+  toolInput?: Record<string, any>; // Tool parameters
 }
 
 export interface FileChange {

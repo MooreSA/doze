@@ -14,6 +14,28 @@ export function MessageList() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
+  // Format tool details based on tool type and input
+  const formatToolDetails = (toolName: string, input?: Record<string, any>): string => {
+    if (!input) return '';
+
+    switch (toolName) {
+      case 'Read':
+        return input.file_path || '';
+      case 'Write':
+      case 'Edit':
+        return input.file_path || '';
+      case 'Bash':
+        const cmd = input.command || '';
+        return cmd.length > 80 ? cmd.substring(0, 80) + '...' : cmd;
+      case 'Glob':
+        return input.pattern || '';
+      case 'Grep':
+        return input.pattern || '';
+      default:
+        return '';
+    }
+  };
+
   return (
     <div
       className={`flex-1 overflow-y-auto flex flex-col ${showWelcome ? '' : 'p-4 gap-3'}`}
@@ -30,11 +52,12 @@ export function MessageList() {
         <>
           {messages.map((msg) => {
             if (msg.role === 'tool') {
+              const details = formatToolDetails(msg.toolName || '', msg.toolInput);
               return (
                 <div key={msg.id} className="flex self-start max-w-[85%] animate-slideInLeft">
                   <div className="px-3 py-2 text-xs rounded-md bg-bg-tertiary border border-border-subtle">
                     <span className="text-accent-primary font-medium">{msg.toolName}</span>
-                    {msg.content && <span className="text-text-tertiary ml-2">{msg.content}</span>}
+                    {details && <span className="text-text-tertiary ml-2 font-mono">{details}</span>}
                   </div>
                 </div>
               );

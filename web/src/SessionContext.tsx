@@ -38,25 +38,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
     });
 
-    es.addEventListener('info', (e) => {
+    es.addEventListener('tool_use', (e) => {
       const data = JSON.parse(e.data);
-      // Backend sends tool use info like "🔧 Edit file.go"
-      console.log('Tool info:', data.content);
+      // Backend sends structured tool use data: {tool: "Read", input: {file_path: "..."}}
+      try {
+        const toolData = JSON.parse(data.content);
+        console.log('Tool use:', toolData);
 
-      // Parse tool name from the info message (format: "emoji ToolName description")
-      const match = data.content.match(/^[^\w]*(\w+)\s*(.*)?$/);
-      if (match) {
-        const [, tool, description] = match;
-
-        // Add tool message immediately to the message list
+        // Add tool message immediately to the message list with full input data
         setMessages(prev => [...prev, {
           id: Date.now().toString() + Math.random(),
           role: 'tool',
-          content: description?.trim() || '',
-          toolName: tool,
+          content: '', // Will be formatted in MessageList
+          toolName: toolData.tool,
+          toolInput: toolData.input,
           timestamp: Date.now(),
         }]);
+      } catch (err) {
+        console.error('Failed to parse tool use data:', err);
       }
+    });
+
+    es.addEventListener('info', (e) => {
+      const data = JSON.parse(e.data);
+      // Backward compatibility - ignore if we're already handling tool_use events
+      console.log('Tool info:', data.content);
     });
 
     es.addEventListener('file_changes', (e) => {
