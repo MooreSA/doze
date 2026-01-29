@@ -1,5 +1,6 @@
 # Binaries
 api/doze
+api/doze-api
 *.exe
 *.dll
 *.so
@@ -40,3 +41,5 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+*.md.tmp
+claude.md
