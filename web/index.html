@@ -1235,6 +1235,73 @@
     </div>
 
     <script>
+        // Constants
+        const STATES = {
+            NONE: 'none',
+            STARTING: 'starting',
+            ACTIVE: 'active',
+            WAITING: 'waiting',
+            SHUTTING_DOWN: 'shutting_down',
+            STOPPED: 'stopped'
+        };
+
+        const STATE_LABELS = {
+            [STATES.NONE]: 'No session',
+            [STATES.STARTING]: 'Starting',
+            [STATES.ACTIVE]: 'Thinking',
+            [STATES.WAITING]: 'Ready',
+            [STATES.SHUTTING_DOWN]: 'Stopping',
+            [STATES.STOPPED]: 'Paused'
+        };
+
+        const EVENT_TYPES = {
+            OUTPUT: 'output',
+            INFO: 'info',
+            ERROR: 'error',
+            FILE_CHANGES: 'file_changes',
+            STATE: 'state'
+        };
+
+        const FILE_STATUS = {
+            MODIFIED: 'M',
+            ADDED: 'A',
+            DELETED: 'D',
+            UNTRACKED: 'U',
+            RENAMED: 'R'
+        };
+
+        const FILE_STATUS_LABELS = {
+            [FILE_STATUS.MODIFIED]: 'M',
+            [FILE_STATUS.ADDED]: 'A',
+            [FILE_STATUS.DELETED]: 'D',
+            [FILE_STATUS.UNTRACKED]: 'U',
+            [FILE_STATUS.RENAMED]: 'R'
+        };
+
+        const FILE_STATUS_CLASSES = {
+            [FILE_STATUS.MODIFIED]: 'modified',
+            [FILE_STATUS.ADDED]: 'added',
+            [FILE_STATUS.DELETED]: 'deleted',
+            [FILE_STATUS.UNTRACKED]: 'untracked',
+            [FILE_STATUS.RENAMED]: 'modified'
+        };
+
+        const FILE_OPERATIONS = {
+            WRITE: 'write',
+            EDIT: 'edit',
+            NOTEBOOK_EDIT: 'notebook_edit'
+        };
+
+        const TIMEOUTS = {
+            RECONNECT: 2000,
+            SESSION_START_DELAY: 500
+        };
+
+        const MOBILE_BREAKPOINT = 640;
+        const MOBILE_MAX_INPUT_HEIGHT = 120;
+        const DESKTOP_MAX_INPUT_HEIGHT = 200;
+        const MOBILE_KEYBOARD_THRESHOLD = 0.8;
+
         // DOM elements
         const messagesEl = document.getElementById('messages');
         const messagesScrollEl = messagesEl.parentElement; // The outer scrollable container
@@ -1271,7 +1338,7 @@
 
         function autoResizeInput() {
             inputEl.style.height = 'auto';
-            const maxHeight = window.innerWidth <= 640 ? 120 : 200; // Smaller max on mobile
+            const maxHeight = window.innerWidth <= MOBILE_BREAKPOINT ? MOBILE_MAX_INPUT_HEIGHT : DESKTOP_MAX_INPUT_HEIGHT;
             inputEl.style.height = Math.min(inputEl.scrollHeight, maxHeight) + 'px';
         }
 
@@ -1281,10 +1348,10 @@
         let initialViewportHeight = window.innerHeight;
 
         function handleMobileKeyboard() {
-            if (window.innerWidth <= 640) {
+            if (window.innerWidth <= MOBILE_BREAKPOINT) {
                 // On mobile, scroll to bottom when keyboard appears
                 const currentHeight = window.innerHeight;
-                if (currentHeight < initialViewportHeight * 0.8) {
+                if (currentHeight < initialViewportHeight * MOBILE_KEYBOARD_THRESHOLD) {
                     // Keyboard is likely open
                     setTimeout(scrollToBottom, 100);
                 }
@@ -1293,7 +1360,7 @@
 
         inputEl.addEventListener('focus', handleMobileKeyboard);
         window.addEventListener('resize', () => {
-            if (window.innerWidth > 640) {
+            if (window.innerWidth > MOBILE_BREAKPOINT) {
                 initialViewportHeight = window.innerHeight;
             }
         });
@@ -1436,13 +1503,13 @@
             let relativePath = event.file_path;
 
             // Determine status based on operation
-            let status = 'M'; // Default to modified
-            if (event.operation === 'write') {
-                status = 'M'; // Could be new or modified, git will tell us later
-            } else if (event.operation === 'edit') {
-                status = 'M';
-            } else if (event.operation === 'notebook_edit') {
-                status = 'M';
+            let status = FILE_STATUS.MODIFIED; // Default to modified
+            if (event.operation === FILE_OPERATIONS.WRITE) {
+                status = FILE_STATUS.MODIFIED; // Could be new or modified, git will tell us later
+            } else if (event.operation === FILE_OPERATIONS.EDIT) {
+                status = FILE_STATUS.MODIFIED;
+            } else if (event.operation === FILE_OPERATIONS.NOTEBOOK_EDIT) {
+                status = FILE_STATUS.MODIFIED;
             }
 
             // Check if this file is already in the list
@@ -1472,21 +1539,6 @@
             fileChangesList.innerHTML = '';
 
             fileChanges.forEach((change, index) => {
-                const statusLabels = {
-                    'M': 'M',
-                    'A': 'A',
-                    'D': 'D',
-                    'U': 'U',
-                    'R': 'R'
-                };
-
-                const statusClasses = {
-                    'M': 'modified',
-                    'A': 'added',
-                    'D': 'deleted',
-                    'U': 'untracked',
-                    'R': 'modified'
-                };
 
                 const itemEl = document.createElement('div');
                 itemEl.className = 'file-change-item';
@@ -1497,7 +1549,7 @@
                     '<span style="font-size: 10px; color: var(--accent-info); margin-left: 4px;">●</span>' : '';
 
                 itemEl.innerHTML = `
-                    <div class="file-change-status ${statusClasses[change.status]}">${statusLabels[change.status]}</div>
+                    <div class="file-change-status ${FILE_STATUS_CLASSES[change.status]}">${FILE_STATUS_LABELS[change.status]}</div>
                     <div class="file-change-path">${escapeHtml(change.path)}${realtimeIndicator}</div>
                     <svg class="file-change-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="6 9 12 15 18 9"></polyline>
@@ -1531,7 +1583,7 @@
         // Session management
         async function startSession() {
             try {
-                updateStatus('starting', 'Starting');
+                updateStatus(STATES.STARTING, STATE_LABELS[STATES.STARTING]);
                 const response = await fetch('/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1540,14 +1592,14 @@
 
                 if (response.ok) {
                     sessionStarted = true;
-                    updateStatus('waiting', 'Ready');
+                    updateStatus(STATES.WAITING, STATE_LABELS[STATES.WAITING]);
                 } else {
                     const error = await response.json();
-                    updateStatus('none', 'Failed');
+                    updateStatus(STATES.NONE, 'Failed');
                     addError(`Failed to start session: ${error.error}`);
                 }
             } catch (err) {
-                updateStatus('none', 'Failed');
+                updateStatus(STATES.NONE, 'Failed');
                 addError('Failed to start session');
                 console.error('Start error:', err);
             }
@@ -1566,7 +1618,7 @@
 
             if (!sessionStarted) {
                 await startSession();
-                await new Promise(resolve => setTimeout(resolve, 500));
+                await new Promise(resolve => setTimeout(resolve, TIMEOUTS.SESSION_START_DELAY));
             }
 
             try {
@@ -1612,19 +1664,19 @@
             eventSource.onmessage = (e) => {
                 const data = JSON.parse(e.data);
 
-                if (data.type === 'output') {
+                if (data.type === EVENT_TYPES.OUTPUT) {
                     appendToAssistant(data.content);
                 }
 
-                if (data.type === 'info') {
+                if (data.type === EVENT_TYPES.INFO) {
                     addToolUse(data.content);
                 }
 
-                if (data.type === 'error') {
+                if (data.type === EVENT_TYPES.ERROR) {
                     addError(data.content);
                 }
 
-                if (data.type === 'file_changes') {
+                if (data.type === EVENT_TYPES.FILE_CHANGES) {
                     try {
                         const parsed = JSON.parse(data.content);
                         // Handle both single FileEditEvent objects and arrays of FileChange objects
@@ -1640,22 +1692,14 @@
                     }
                 }
 
-                if (data.type === 'state') {
-                    const stateLabels = {
-                        none: 'No session',
-                        starting: 'Starting',
-                        active: 'Thinking',
-                        waiting: 'Ready',
-                        shutting_down: 'Stopping',
-                        stopped: 'Paused'
-                    };
-                    updateStatus(data.state, stateLabels[data.state] || data.state);
+                if (data.type === EVENT_TYPES.STATE) {
+                    updateStatus(data.state, STATE_LABELS[data.state] || data.state);
 
-                    if (data.state === 'active') {
+                    if (data.state === STATES.ACTIVE) {
                         showTypingIndicator();
                     }
 
-                    if (data.state === 'waiting' || data.state === 'stopped') {
+                    if (data.state === STATES.WAITING || data.state === STATES.STOPPED) {
                         hideTypingIndicator();
                         finalizeAssistantMessage();
                         setInputEnabled(true);
@@ -1664,10 +1708,10 @@
             };
 
             eventSource.onerror = () => {
-                updateStatus('none', 'Reconnecting');
+                updateStatus(STATES.NONE, 'Reconnecting');
                 setInputEnabled(false);
                 eventSource.close();
-                setTimeout(connect, 2000);
+                setTimeout(connect, TIMEOUTS.RECONNECT);
             };
         }
 
@@ -1677,7 +1721,7 @@
         fetch('/status')
             .then(r => r.json())
             .then(data => {
-                if (data && data.state !== 'none') {
+                if (data && data.state !== STATES.NONE) {
                     sessionStarted = true;
                 }
             })
