@@ -1037,24 +1037,41 @@ func broadcastState(state SessionState) {
 
 // formatToolUse formats a tool use event for display to the user.
 //
-// Shows the tool name with an emoji prefix. Can be extended to show
-// parameters for more detail (e.g., "🔧 Read(main.go)").
+// Shows the tool name with an emoji prefix and relevant parameters
+// for context (e.g., "🔧 Read main.go", "🔧 Bash: ls -la").
 func formatToolUse(name string, input map[string]interface{}) string {
-	// Simple format: just show tool name
+	switch name {
+	case "Read":
+		if path, ok := input["file_path"].(string); ok {
+			return fmt.Sprintf("🔧 Read %s", filepath.Base(path))
+		}
+	case "Write":
+		if path, ok := input["file_path"].(string); ok {
+			return fmt.Sprintf("🔧 Write %s", filepath.Base(path))
+		}
+	case "Edit":
+		if path, ok := input["file_path"].(string); ok {
+			return fmt.Sprintf("🔧 Edit %s", filepath.Base(path))
+		}
+	case "Bash":
+		if cmd, ok := input["command"].(string); ok {
+			// Truncate long commands
+			if len(cmd) > 60 {
+				cmd = cmd[:60] + "..."
+			}
+			return fmt.Sprintf("🔧 Bash: %s", cmd)
+		}
+	case "Glob":
+		if pattern, ok := input["pattern"].(string); ok {
+			return fmt.Sprintf("🔧 Glob %s", pattern)
+		}
+	case "Grep":
+		if pattern, ok := input["pattern"].(string); ok {
+			return fmt.Sprintf("🔧 Grep: %s", pattern)
+		}
+	}
+	// Fallback: just show tool name
 	return fmt.Sprintf("🔧 %s", name)
-
-	// Could extend to show key parameters:
-	// switch name {
-	// case "Read":
-	//     if path, ok := input["file_path"].(string); ok {
-	//         return fmt.Sprintf("🔧 Reading %s", filepath.Base(path))
-	//     }
-	// case "Bash":
-	//     if cmd, ok := input["command"].(string); ok {
-	//         return fmt.Sprintf("🔧 Running: %s", cmd)
-	//     }
-	// }
-	// return fmt.Sprintf("🔧 %s", name)
 }
 
 // broadcastEvent sends an event to all connected SSE clients.
