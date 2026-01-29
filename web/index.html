@@ -2,258 +2,817 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Doze</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --bg-primary: #0a0a0b;
+            --bg-secondary: #111113;
+            --bg-tertiary: #18181b;
+            --bg-elevated: #1f1f23;
+            --bg-hover: #27272a;
+
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --border-default: rgba(255, 255, 255, 0.1);
+            --border-strong: rgba(255, 255, 255, 0.15);
+
+            --text-primary: #fafafa;
+            --text-secondary: #a1a1aa;
+            --text-tertiary: #71717a;
+            --text-muted: #52525b;
+
+            --accent-primary: #8b5cf6;
+            --accent-primary-soft: rgba(139, 92, 246, 0.15);
+            --accent-success: #10b981;
+            --accent-success-soft: rgba(16, 185, 129, 0.15);
+            --accent-warning: #f59e0b;
+            --accent-warning-soft: rgba(245, 158, 11, 0.15);
+            --accent-error: #ef4444;
+            --accent-error-soft: rgba(239, 68, 68, 0.15);
+            --accent-info: #6366f1;
+            --accent-info-soft: rgba(99, 102, 241, 0.15);
+
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --font-mono: 'Fira Code', 'SF Mono', 'Monaco', 'Consolas', monospace;
+
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --radius-xl: 20px;
+
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+            --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+            --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
-        body {
-            background: linear-gradient(to bottom, #1a1a1a 0%, #0d0d0d 100%);
-            color: #e0e0e0;
-            font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
+        html, body {
+            height: 100%;
             overflow: hidden;
         }
 
-        .status {
-            padding: 0.875rem 1.25rem;
-            background: rgba(30, 30, 30, 0.95);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            font-size: 0.813rem;
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            font-size: 14px;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        .app {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        /* Header */
+        .header {
+            flex-shrink: 0;
+            padding: 16px 20px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-subtle);
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+            justify-content: space-between;
+            gap: 16px;
         }
 
-        .status-indicator {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: #4ec9b0;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 0 8px currentColor;
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
 
-        .status-text {
-            font-weight: 500;
-            letter-spacing: 0.01em;
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
-        .status.none .status-indicator {
-            background: #ce9178;
-            color: #ce9178;
-        }
-        .status.starting .status-indicator {
-            background: #dcdcaa;
-            color: #dcdcaa;
-            animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        .status.waiting .status-indicator {
-            background: #4ec9b0;
-            color: #4ec9b0;
-        }
-        .status.active .status-indicator {
-            background: #569cd6;
-            color: #569cd6;
-            animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        .status.shutting_down .status-indicator {
-            background: #ce9178;
-            color: #ce9178;
-        }
-        .status.stopped .status-indicator {
-            background: #ce9178;
-            color: #ce9178;
+        .logo-icon {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, var(--accent-primary), #a78bfa);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            box-shadow: var(--shadow-sm);
         }
 
-        @keyframes pulse {
-            0%, 100% {
-                opacity: 1;
-                transform: scale(1);
-            }
-            50% {
-                opacity: 0.4;
-                transform: scale(0.95);
-            }
-        }
-
-        #output {
-            flex: 1;
-            padding: 1.5rem;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            font-size: 0.875rem;
-            line-height: 1.6;
-            scroll-behavior: smooth;
-        }
-
-        #output::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        #output::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        #output::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.15);
-            border-radius: 4px;
-        }
-
-        #output::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.25);
-        }
-
-        #input-area {
-            background: rgba(30, 30, 30, 0.95);
-            backdrop-filter: blur(10px);
-            padding: 1.25rem;
-            border-top: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.3);
-        }
-
-        #input {
-            width: 100%;
-            padding: 0.875rem 1rem;
-            background: rgba(60, 60, 60, 0.5);
-            border: 1.5px solid rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            color: #e0e0e0;
-            font-family: inherit;
-            font-size: 16px; /* Prevents iOS zoom on focus */
-            outline: none;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        #input:focus {
-            background: rgba(60, 60, 60, 0.7);
-            border-color: #4ec9b0;
-            box-shadow: 0 0 0 3px rgba(78, 201, 176, 0.15);
-        }
-
-        #input::placeholder {
-            color: rgba(255, 255, 255, 0.4);
-        }
-
-        .welcome {
-            opacity: 0.5;
-            text-align: center;
-            padding: 3rem 2rem;
-            animation: fadeIn 0.6s ease-out;
-        }
-
-        .welcome h1 {
-            font-size: 2.5rem;
-            margin-bottom: 0.75rem;
+        .logo-text {
+            font-size: 18px;
             font-weight: 600;
             letter-spacing: -0.02em;
         }
 
-        .welcome p {
-            font-size: 0.938rem;
-            color: rgba(255, 255, 255, 0.6);
-            font-weight: 400;
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: all var(--transition-normal);
         }
 
-        @keyframes fadeIn {
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-tertiary);
+            transition: all var(--transition-normal);
+        }
+
+        .status-badge[data-state="none"] .status-dot { background: var(--text-tertiary); }
+        .status-badge[data-state="starting"] .status-dot {
+            background: var(--accent-warning);
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        .status-badge[data-state="active"] .status-dot {
+            background: var(--accent-primary);
+            animation: pulse 1.2s ease-in-out infinite;
+        }
+        .status-badge[data-state="waiting"] .status-dot { background: var(--accent-success); }
+        .status-badge[data-state="stopped"] .status-dot { background: var(--accent-warning); }
+        .status-badge[data-state="shutting_down"] .status-dot { background: var(--accent-error); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.9); }
+        }
+
+        /* Messages area */
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 24px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            scroll-behavior: smooth;
+        }
+
+        .messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .messages::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .messages::-webkit-scrollbar-thumb {
+            background: var(--border-default);
+            border-radius: 3px;
+        }
+
+        .messages::-webkit-scrollbar-thumb:hover {
+            background: var(--border-strong);
+        }
+
+        /* Welcome state */
+        .welcome {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 40px 20px;
+            animation: fadeInUp 0.5s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .welcome-icon {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, var(--accent-primary), #a78bfa);
+            border-radius: var(--radius-xl);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow-lg), 0 0 60px rgba(139, 92, 246, 0.2);
+        }
+
+        .welcome h1 {
+            font-size: 28px;
+            font-weight: 600;
+            letter-spacing: -0.03em;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--text-primary), var(--text-secondary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .welcome p {
+            color: var(--text-secondary);
+            font-size: 15px;
+            max-width: 320px;
+            margin-bottom: 8px;
+        }
+
+        .welcome-hint {
+            color: var(--text-tertiary);
+            font-size: 13px;
+            margin-top: 24px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .welcome-hint kbd {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-default);
+            border-radius: var(--radius-sm);
+            padding: 2px 8px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+        }
+
+        /* Message bubbles */
+        .message {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 100%;
+            animation: messageIn 0.3s ease-out;
+        }
+
+        @keyframes messageIn {
             from {
                 opacity: 0;
                 transform: translateY(10px);
             }
             to {
-                opacity: 0.5;
+                opacity: 1;
                 transform: translateY(0);
             }
         }
 
-        /* Mobile optimizations */
-        @media (max-width: 768px) {
-            .status {
-                padding: 0.75rem 1rem;
-                font-size: 0.75rem;
+        .message-user {
+            align-items: flex-end;
+        }
+
+        .message-assistant {
+            align-items: flex-start;
+        }
+
+        .message-label {
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-tertiary);
+            padding: 0 4px;
+        }
+
+        .message-content {
+            padding: 14px 18px;
+            border-radius: var(--radius-lg);
+            max-width: 85%;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
+
+        .message-user .message-content {
+            background: var(--accent-primary);
+            color: white;
+            border-bottom-right-radius: var(--radius-sm);
+        }
+
+        .message-assistant .message-content {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            border-bottom-left-radius: var(--radius-sm);
+        }
+
+        .message-content pre {
+            margin: 12px 0;
+            padding: 14px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            overflow-x: auto;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .message-content code {
+            font-family: var(--font-mono);
+            font-size: 13px;
+            background: var(--bg-tertiary);
+            padding: 2px 6px;
+            border-radius: var(--radius-sm);
+        }
+
+        .message-content pre code {
+            background: none;
+            padding: 0;
+        }
+
+        /* Tool invocations */
+        .tool-use {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            font-size: 13px;
+            color: var(--text-secondary);
+            max-width: 85%;
+            animation: messageIn 0.3s ease-out;
+        }
+
+        .tool-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--accent-info-soft);
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .tool-icon svg {
+            width: 14px;
+            height: 14px;
+            color: var(--accent-info);
+        }
+
+        .tool-name {
+            font-family: var(--font-mono);
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+
+        /* Error messages */
+        .message-error {
+            padding: 12px 16px;
+            background: var(--accent-error-soft);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: var(--radius-md);
+            color: var(--accent-error);
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: messageIn 0.3s ease-out;
+        }
+
+        .message-error svg {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+        }
+
+        /* Typing indicator */
+        .typing-indicator {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: flex-start;
+            animation: messageIn 0.3s ease-out;
+        }
+
+        .typing-indicator .message-label {
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-tertiary);
+            padding: 0 4px;
+        }
+
+        .typing-bubble {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 14px 18px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            border-bottom-left-radius: var(--radius-sm);
+        }
+
+        .typing-text {
+            font-size: 13px;
+            color: var(--text-secondary);
+            animation: typingPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes typingPulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 3px;
+        }
+
+        .typing-dots span {
+            width: 5px;
+            height: 5px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+            animation: typingBounce 1.4s ease-in-out infinite;
+        }
+
+        .typing-dots span:nth-child(1) { animation-delay: 0ms; }
+        .typing-dots span:nth-child(2) { animation-delay: 160ms; }
+        .typing-dots span:nth-child(3) { animation-delay: 320ms; }
+
+        @keyframes typingBounce {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-4px); opacity: 1; }
+        }
+
+        /* Input area */
+        .input-area {
+            flex-shrink: 0;
+            padding: 16px 20px 20px;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .input-container {
+            display: flex;
+            align-items: flex-end;
+            gap: 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-default);
+            border-radius: var(--radius-lg);
+            padding: 4px 4px 4px 16px;
+            transition: all var(--transition-normal);
+        }
+
+        .input-container:focus-within {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px var(--accent-primary-soft);
+        }
+
+        .input-container.disabled {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        #input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            font-size: 15px;
+            line-height: 1.5;
+            padding: 10px 0;
+            resize: none;
+            outline: none;
+            min-height: 24px;
+            max-height: 200px;
+        }
+
+        #input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .send-button {
+            width: 40px;
+            height: 40px;
+            background: var(--accent-primary);
+            border: none;
+            border-radius: var(--radius-md);
+            color: white;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all var(--transition-fast);
+            flex-shrink: 0;
+        }
+
+        .send-button:hover:not(:disabled) {
+            background: #7c3aed;
+            transform: scale(1.05);
+        }
+
+        .send-button:active:not(:disabled) {
+            transform: scale(0.95);
+        }
+
+        .send-button:disabled {
+            background: var(--bg-hover);
+            color: var(--text-muted);
+            cursor: not-allowed;
+        }
+
+        .send-button svg {
+            width: 18px;
+            height: 18px;
+        }
+
+        .input-hint {
+            text-align: center;
+            margin-top: 10px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* Mobile styles */
+        @media (max-width: 640px) {
+            .app {
+                max-width: 100%;
             }
 
-            #output {
-                padding: 1rem;
-                font-size: 0.813rem;
+            .header {
+                padding: 12px 16px;
             }
 
-            #input-area {
-                padding: 1rem;
+            .logo-text {
+                display: none;
+            }
+
+            .messages {
+                padding: 16px;
+                gap: 16px;
+            }
+
+            .message-content {
+                max-width: 90%;
+                padding: 12px 14px;
             }
 
             .welcome h1 {
-                font-size: 2rem;
+                font-size: 24px;
             }
+
+            .welcome-icon {
+                width: 60px;
+                height: 60px;
+                font-size: 28px;
+            }
+
+            .input-area {
+                padding: 12px 16px 16px;
+            }
+
+            .input-hint {
+                display: none;
+            }
+        }
+
+        /* Scrollbar for Firefox */
+        .messages {
+            scrollbar-width: thin;
+            scrollbar-color: var(--border-default) transparent;
         }
     </style>
 </head>
 <body>
-    <div class="status" id="status">
-        <div class="status-indicator"></div>
-        <span class="status-text" id="status-text">Connecting...</span>
-    </div>
+    <div class="app">
+        <header class="header">
+            <div class="header-left">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+                        </svg>
+                    </div>
+                    <span class="logo-text">Doze</span>
+                </div>
+            </div>
+            <div class="status-badge" id="status" data-state="none">
+                <span class="status-dot"></span>
+                <span class="status-text" id="status-text">Connecting</span>
+            </div>
+        </header>
 
-    <div id="output">
-        <div class="welcome">
-            <h1>🛌 Doze</h1>
-            <p>Chat with Claude Code from anywhere</p>
-            <p style="margin-top: 1rem; font-size: 0.8rem;">Type a message to start...</p>
+        <div class="messages" id="messages">
+            <div class="welcome" id="welcome">
+                <div class="welcome-icon">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+                    </svg>
+                </div>
+                <h1>Welcome to Doze</h1>
+                <p>Your remote Claude Code session. Ask anything about your codebase.</p>
+                <div class="welcome-hint">
+                    Press <kbd>Enter</kbd> to send a message
+                </div>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="input-container" id="input-container">
+                <textarea
+                    id="input"
+                    placeholder="Ask Claude anything..."
+                    rows="1"
+                    disabled
+                ></textarea>
+                <button class="send-button" id="send-button" disabled>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                </button>
+            </div>
+            <div class="input-hint">Claude Code running remotely</div>
         </div>
     </div>
 
-    <div id="input-area">
-        <input
-            type="text"
-            id="input"
-            placeholder="Send a message to Claude..."
-            autocomplete="off"
-            disabled
-        />
-    </div>
-
     <script>
-        const output = document.getElementById('output');
-        const input = document.getElementById('input');
+        // DOM elements
+        const messagesEl = document.getElementById('messages');
+        const welcomeEl = document.getElementById('welcome');
+        const inputEl = document.getElementById('input');
+        const inputContainer = document.getElementById('input-container');
+        const sendButton = document.getElementById('send-button');
         const statusEl = document.getElementById('status');
         const statusText = document.getElementById('status-text');
 
         let eventSource;
         let sessionStarted = false;
+        let currentAssistantMessage = null;
+        let typingIndicator = null;
 
+        // Status management
         function updateStatus(state, text) {
-            statusEl.className = `status ${state}`;
+            statusEl.dataset.state = state;
             statusText.textContent = text;
         }
 
-        function appendOutput(text, style = '') {
-            // Remove welcome message on first output
-            const welcome = output.querySelector('.welcome');
-            if (welcome) welcome.remove();
-
-            if (style) {
-                const span = document.createElement('span');
-                span.style.cssText = style;
-                span.textContent = text;
-                output.appendChild(span);
-            } else {
-                output.appendChild(document.createTextNode(text));
-            }
-            output.scrollTop = output.scrollHeight;
+        // Input handling
+        function setInputEnabled(enabled) {
+            inputEl.disabled = !enabled;
+            sendButton.disabled = !enabled;
+            inputContainer.classList.toggle('disabled', !enabled);
         }
 
+        function autoResizeInput() {
+            inputEl.style.height = 'auto';
+            inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + 'px';
+        }
+
+        inputEl.addEventListener('input', autoResizeInput);
+
+        // Message rendering
+        function removeWelcome() {
+            if (welcomeEl) {
+                welcomeEl.remove();
+            }
+        }
+
+        function addUserMessage(text) {
+            removeWelcome();
+            const messageEl = document.createElement('div');
+            messageEl.className = 'message message-user';
+            messageEl.innerHTML = `
+                <div class="message-label">You</div>
+                <div class="message-content">${escapeHtml(text)}</div>
+            `;
+            messagesEl.appendChild(messageEl);
+            scrollToBottom();
+        }
+
+        function showTypingIndicator() {
+            if (typingIndicator) return;
+            typingIndicator = document.createElement('div');
+            typingIndicator.className = 'typing-indicator';
+            typingIndicator.innerHTML = `
+                <div class="message-label">Claude</div>
+                <div class="typing-bubble">
+                    <span class="typing-text">Thinking</span>
+                    <div class="typing-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+            `;
+            messagesEl.appendChild(typingIndicator);
+            scrollToBottom();
+        }
+
+        function hideTypingIndicator() {
+            if (typingIndicator) {
+                typingIndicator.remove();
+                typingIndicator = null;
+            }
+        }
+
+        function getOrCreateAssistantMessage() {
+            hideTypingIndicator();
+            if (!currentAssistantMessage) {
+                removeWelcome();
+                const messageEl = document.createElement('div');
+                messageEl.className = 'message message-assistant';
+                messageEl.innerHTML = `
+                    <div class="message-label">Claude</div>
+                    <div class="message-content"></div>
+                `;
+                messagesEl.appendChild(messageEl);
+                currentAssistantMessage = messageEl.querySelector('.message-content');
+            }
+            return currentAssistantMessage;
+        }
+
+        function appendToAssistant(text) {
+            const content = getOrCreateAssistantMessage();
+            content.innerHTML += escapeHtml(text);
+            scrollToBottom();
+        }
+
+        function addToolUse(toolInfo) {
+            hideTypingIndicator();
+            removeWelcome();
+            const toolEl = document.createElement('div');
+            toolEl.className = 'tool-use';
+            toolEl.innerHTML = `
+                <div class="tool-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+                    </svg>
+                </div>
+                <span class="tool-name">${escapeHtml(toolInfo)}</span>
+            `;
+            messagesEl.appendChild(toolEl);
+            scrollToBottom();
+            currentAssistantMessage = null;
+        }
+
+        function addError(text) {
+            hideTypingIndicator();
+            const errorEl = document.createElement('div');
+            errorEl.className = 'message-error';
+            errorEl.innerHTML = `
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <span>${escapeHtml(text)}</span>
+            `;
+            messagesEl.appendChild(errorEl);
+            scrollToBottom();
+        }
+
+        function finalizeAssistantMessage() {
+            currentAssistantMessage = null;
+        }
+
+        function scrollToBottom() {
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Session management
         async function startSession() {
             try {
-                updateStatus('starting', 'Starting session...');
+                updateStatus('starting', 'Starting');
                 const response = await fetch('/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -262,120 +821,128 @@
 
                 if (response.ok) {
                     sessionStarted = true;
-                    updateStatus('waiting', 'Session started');
+                    updateStatus('waiting', 'Ready');
                 } else {
                     const error = await response.json();
-                    updateStatus('none', `Failed to start: ${error.error}`);
+                    updateStatus('none', 'Failed');
+                    addError(`Failed to start session: ${error.error}`);
                 }
             } catch (err) {
-                updateStatus('none', 'Failed to start session');
+                updateStatus('none', 'Failed');
+                addError('Failed to start session');
                 console.error('Start error:', err);
             }
         }
 
+        async function sendMessage() {
+            const message = inputEl.value.trim();
+            if (!message) return;
+
+            inputEl.value = '';
+            autoResizeInput();
+            setInputEnabled(false);
+
+            addUserMessage(message);
+            showTypingIndicator();
+
+            if (!sessionStarted) {
+                await startSession();
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+
+            try {
+                const response = await fetch('/message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: message })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    hideTypingIndicator();
+                    addError(error.error);
+                }
+            } catch (err) {
+                hideTypingIndicator();
+                addError('Failed to send message');
+                console.error('Failed to send message:', err);
+            } finally {
+                setInputEnabled(true);
+                inputEl.focus();
+            }
+        }
+
+        // Event handlers
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        sendButton.addEventListener('click', sendMessage);
+
+        // SSE connection
         function connect() {
             eventSource = new EventSource('/stream');
 
             eventSource.onopen = () => {
-                input.disabled = false;
+                setInputEnabled(true);
             };
 
             eventSource.onmessage = (e) => {
                 const data = JSON.parse(e.data);
 
                 if (data.type === 'output') {
-                    appendOutput(data.content);
+                    appendToAssistant(data.content);
                 }
 
                 if (data.type === 'info') {
-                    // Add newline before tool use if output doesn't end with one
-                    const lastChar = output.textContent.slice(-1);
-                    if (lastChar && lastChar !== '\n') {
-                        appendOutput('\n');
-                    }
-                    appendOutput(data.content + '\n', 'opacity: 0.7;');
+                    addToolUse(data.content);
                 }
 
                 if (data.type === 'error') {
-                    appendOutput('[Error] ' + data.content + '\n', 'color: #f48771;');
+                    addError(data.content);
                 }
 
                 if (data.type === 'state') {
                     const stateLabels = {
                         none: 'No session',
-                        starting: 'Starting...',
-                        active: 'Claude is working...',
+                        starting: 'Starting',
+                        active: 'Thinking',
                         waiting: 'Ready',
-                        shutting_down: 'Stopping...',
-                        stopped: 'Session stopped (will resume on message)'
+                        shutting_down: 'Stopping',
+                        stopped: 'Paused'
                     };
                     updateStatus(data.state, stateLabels[data.state] || data.state);
 
-                    // Add spacing after Claude finishes responding
-                    if (data.state === 'waiting') {
-                        appendOutput('\n');
-                        input.disabled = false;
+                    if (data.state === 'active') {
+                        showTypingIndicator();
                     }
 
-                    if (data.state === 'stopped') {
-                        input.disabled = false;
+                    if (data.state === 'waiting' || data.state === 'stopped') {
+                        hideTypingIndicator();
+                        finalizeAssistantMessage();
+                        setInputEnabled(true);
                     }
                 }
             };
 
             eventSource.onerror = () => {
-                updateStatus('none', 'Disconnected - reconnecting...');
-                input.disabled = true;
+                updateStatus('none', 'Reconnecting');
+                setInputEnabled(false);
                 eventSource.close();
                 setTimeout(connect, 2000);
             };
         }
 
-        input.addEventListener('keypress', async (e) => {
-            if (e.key === 'Enter' && input.value.trim()) {
-                const message = input.value;
-                input.value = '';
-                input.disabled = true;
-
-                // Show user message in output
-                appendOutput('> ' + message + '\n\n', 'color: #569cd6;');
-
-                // Auto-start session on first message if needed
-                if (!sessionStarted) {
-                    await startSession();
-                    // Small delay to let session initialize
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
-
-                try {
-                    const response = await fetch('/message', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ content: message })
-                    });
-
-                    if (!response.ok) {
-                        const error = await response.json();
-                        appendOutput(`[Error] ${error.error}\n`, 'color: #f48771;');
-                    }
-                } catch (err) {
-                    appendOutput('[Error] Failed to send message\n', 'color: #f48771;');
-                    console.error('Failed to send message:', err);
-                } finally {
-                    input.disabled = false;
-                    input.focus();
-                }
-            }
-        });
-
-        // Connect on load and check status
+        // Initialize
         connect();
 
-        // Check if session exists
         fetch('/status')
             .then(r => r.json())
             .then(data => {
-                if (data.state !== 'none') {
+                if (data && data.state !== 'none') {
                     sessionStarted = true;
                 }
             })
