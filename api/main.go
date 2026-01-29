@@ -62,6 +62,9 @@ const (
 	EventTypeState  = "state"
 	EventTypeError  = "error"
 	EventTypeInfo   = "info"
+
+	// Display limits
+	StatusRecentOutputLimit = 500 // Characters of recent output to include in status endpoint
 )
 
 // SessionState represents the current state of a Claude Code session.
@@ -302,10 +305,10 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		status["idle_seconds"] = int(time.Since(session.LastActivity).Seconds())
 	}
 
-	// Include recent output (last 500 chars for status endpoint)
+	// Include recent output for status endpoint
 	recentOutput := session.outputBuffer.String()
-	if len(recentOutput) > 500 {
-		recentOutput = recentOutput[len(recentOutput)-500:]
+	if len(recentOutput) > StatusRecentOutputLimit {
+		recentOutput = recentOutput[len(recentOutput)-StatusRecentOutputLimit:]
 	}
 	status["recent_output"] = recentOutput
 
@@ -711,30 +714,6 @@ func waitForExit() {
 	session.stdin = nil
 	session.stdout = nil
 	session.stderr = nil
-}
-
-// detectWaitingForInput checks if output indicates Claude is waiting for user input.
-//
-// NOTE: This function is currently unused. Idle detection relies on the "result"
-// message type from stream-json output instead of parsing text patterns.
-//
-// Kept for reference in case text-based detection becomes needed (e.g., if
-// stream-json doesn't provide reliable completion signals).
-func detectWaitingForInput(output string) bool {
-	// Look for common prompt patterns in terminal output
-	// Claude Code typically shows a prompt like "> " or "❯"
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		// Check for prompt indicators
-		if strings.HasSuffix(trimmed, ">") ||
-			strings.HasSuffix(trimmed, "❯") ||
-			strings.Contains(line, "Waiting for input") ||
-			strings.Contains(line, "What would you like") {
-			return true
-		}
-	}
-	return false
 }
 
 // resetIdleTimer cancels any existing timer and starts a new one.

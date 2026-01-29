@@ -24,6 +24,9 @@ go.work
 *.swo
 *~
 
+# API Testing
+bruno-collection/
+
 # OS
 .DS_Store
 Thumbs.db
