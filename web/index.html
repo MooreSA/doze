@@ -407,26 +407,52 @@
         /* Typing indicator */
         .typing-indicator {
             display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: flex-start;
+            animation: messageIn 0.3s ease-out;
+        }
+
+        .typing-indicator .message-label {
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-tertiary);
+            padding: 0 4px;
+        }
+
+        .typing-bubble {
+            display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
             padding: 14px 18px;
             background: var(--bg-elevated);
             border: 1px solid var(--border-subtle);
             border-radius: var(--radius-lg);
             border-bottom-left-radius: var(--radius-sm);
-            max-width: 120px;
-            animation: messageIn 0.3s ease-out;
+        }
+
+        .typing-text {
+            font-size: 13px;
+            color: var(--text-secondary);
+            animation: typingPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes typingPulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
         }
 
         .typing-dots {
             display: flex;
-            gap: 4px;
+            gap: 3px;
         }
 
         .typing-dots span {
-            width: 6px;
-            height: 6px;
-            background: var(--text-tertiary);
+            width: 5px;
+            height: 5px;
+            background: var(--accent-primary);
             border-radius: 50%;
             animation: typingBounce 1.4s ease-in-out infinite;
         }
@@ -436,8 +462,8 @@
         .typing-dots span:nth-child(3) { animation-delay: 320ms; }
 
         @keyframes typingBounce {
-            0%, 60%, 100% { transform: translateY(0); }
-            30% { transform: translateY(-4px); }
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+            30% { transform: translateY(-4px); opacity: 1; }
         }
 
         /* Input area */
@@ -722,10 +748,14 @@
             typingIndicator = document.createElement('div');
             typingIndicator.className = 'typing-indicator';
             typingIndicator.innerHTML = `
-                <div class="typing-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+                <div class="message-label">Claude</div>
+                <div class="typing-bubble">
+                    <span class="typing-text">Thinking</span>
+                    <div class="typing-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
                 </div>
             `;
             messagesEl.appendChild(typingIndicator);
