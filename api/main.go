@@ -497,6 +497,112 @@ func startClaudeProcess(repoPath string) error {
 	return nil
 }
 
+// resumeClaudeProcess resumes a stopped Claude Code session with --resume.
+//
+// Similar to startClaudeProcess, but uses the stored session ID to resume
+// a previous conversation. The queued message is sent immediately after the
+// process starts.
+//
+// If resume fails (e.g., session ID not found), the process will exit quickly
+// and waitForExit will handle the error state.
+//
+// The session.mu lock must NOT be held when calling this function.
+func resumeClaudeProcess(queuedMessage string) error {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+
+	if session.ClaudeSessionID == "" {
+		return fmt.Errorf("no session ID available for resume")
+	}
+
+	sessionID := session.ClaudeSessionID
+	repoPath := session.RepoPath
+	if repoPath == "" {
+		repoPath = DefaultRepoPath
+	}
+
+	session.State = StateStarting
+	session.LastActivity = time.Now()
+
+	broadcastState(StateStarting)
+
+	// Build command with --resume flag
+	cmd := exec.Command("claude",
+		"--resume", sessionID,
+		"--print",
+		"--input-format=stream-json",
+		"--output-format=stream-json",
+		"--verbose",
+	)
+	cmd.Dir = repoPath
+
+	// Get pipes for stdin/stdout/stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		session.State = StateStopped
+		return fmt.Errorf("failed to get stdin pipe: %w", err)
+	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		session.State = StateStopped
+		return fmt.Errorf("failed to get stdout pipe: %w", err)
+	}
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		session.State = StateStopped
+		return fmt.Errorf("failed to get stderr pipe: %w", err)
+	}
+
+	session.cmd = cmd
+	session.stdin = stdin
+	session.stdout = stdout
+	session.stderr = stderr
+
+	// Start the process
+	if err := cmd.Start(); err != nil {
+		session.State = StateStopped
+		return fmt.Errorf("failed to resume claude: %w", err)
+	}
+
+	slog.Info("claude process resumed", "pid", cmd.Process.Pid, "session_id", sessionID, "repo_path", repoPath)
+
+	// Start goroutines to handle I/O (these run until process exits)
+	go handleStdout()
+	go handleStderr()
+	go waitForExit()
+
+	// Transition to active state (we're about to send a message)
+	session.State = StateActive
+	broadcastState(StateActive)
+
+	// Send the queued message immediately
+	// Claude will buffer it if not quite ready yet
+	inputMsg := map[string]interface{}{
+		"type": MessageTypeUser,
+		"message": map[string]interface{}{
+			"role":    MessageTypeUser,
+			"content": queuedMessage,
+		},
+	}
+	msgBytes, err := json.Marshal(inputMsg)
+	if err != nil {
+		slog.Error("failed to marshal queued message", "error", err)
+		return fmt.Errorf("failed to format queued message: %w", err)
+	}
+
+	// Write to stdin in a goroutine to avoid blocking
+	go func() {
+		if _, err := fmt.Fprintf(stdin, "%s\n", msgBytes); err != nil {
+			slog.Error("failed to write queued message to stdin", "error", err)
+		}
+		slog.Info("queued message sent to resumed session")
+	}()
+
+	return nil
+}
+
 // ClaudeStreamMessage represents a message from Claude's stream-json output.
 //
 // Claude emits several message types:
@@ -790,28 +896,29 @@ func stopSession() {
 
 	// Send SIGTERM to Claude process for graceful shutdown
 	if session.cmd != nil && session.cmd.Process != nil {
-		slog.Info("sending SIGTERM to claude process", "pid", session.cmd.Process.Pid)
-		if err := session.cmd.Process.Signal(os.Interrupt); err != nil {
+		processToKill := session.cmd.Process // Capture the process we're shutting down
+		pid := processToKill.Pid
+
+		slog.Info("sending SIGTERM to claude process", "pid", pid)
+		if err := processToKill.Signal(os.Interrupt); err != nil {
 			slog.Error("failed to send SIGTERM", "error", err)
 			// Try SIGKILL immediately if SIGTERM fails
-			if killErr := session.cmd.Process.Kill(); killErr != nil {
+			if killErr := processToKill.Kill(); killErr != nil {
 				slog.Error("failed to kill process immediately", "error", killErr)
 			}
 			return
 		}
 
 		// Give it time to shut down gracefully, then SIGKILL
-		go func() {
+		// IMPORTANT: Capture the process pointer to avoid killing a resumed session
+		go func(proc *os.Process, pid int) {
 			time.Sleep(GracefulShutdownTimeout)
-			session.mu.Lock()
-			defer session.mu.Unlock()
-			if session.cmd != nil && session.cmd.Process != nil {
-				slog.Warn("force killing process after timeout", "timeout", GracefulShutdownTimeout)
-				if err := session.cmd.Process.Kill(); err != nil {
-					slog.Error("failed to force kill process", "error", err)
-				}
+			// Only kill THIS specific process, not whatever session.cmd points to now
+			slog.Warn("force killing process after timeout", "timeout", GracefulShutdownTimeout, "pid", pid)
+			if err := proc.Kill(); err != nil {
+				slog.Debug("failed to force kill process (may have already exited)", "error", err, "pid", pid)
 			}
-		}()
+		}(processToKill, pid)
 	}
 
 	// TODO: In the simplified architecture, we don't need Sprites checkpoints.
@@ -995,7 +1102,7 @@ func broadcastEvent(event SSEEvent) {
 //
 // State handling:
 //   - StateNone: Returns error (must call /start first)
-//   - StateStopped: TODO - will trigger resume flow
+//   - StateStopped: Triggers resume flow - spawns `claude --resume {session-id}`
 //   - StateStarting: Returns error (wait for session to be ready)
 //   - StateActive/StateWaiting: Sends message to Claude via stdin
 //
@@ -1035,11 +1142,21 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case StateStopped:
-		// Session was stopped due to idle timeout
-		// TODO: Implement resume flow - spawn `claude --resume {session-id}`
-		respondJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
-			"error":  "session is stopped, resume not yet implemented",
-			"queued": false,
+		// Session was stopped due to idle timeout - trigger resume
+		slog.Info("resuming stopped session", "session_id", session.ClaudeSessionID, "message", req.Content)
+
+		// Resume the session with the queued message
+		if err := resumeClaudeProcess(req.Content); err != nil {
+			slog.Error("failed to resume session", "error", err)
+			respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to resume: %v", err))
+			return
+		}
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"queued":  true,
+			"resumed": true,
+			"state":   StateActive,
 		})
 		return
 

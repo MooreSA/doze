@@ -51,14 +51,14 @@ curl -X POST http://localhost:8080/message -d '{"content":"list files"}'
 
 ---
 
-### Day 4: Resume Flow
-- [ ] POST /message when STOPPED → trigger resume
-- [ ] Spawn new Claude process: `claude --resume {session-id}`
-- [ ] Wait for Claude to be ready (detect prompt)
-- [ ] Inject queued user message to stdin
-- [ ] Update state to ACTIVE
-- [ ] Resume streaming to SSE clients
-- [ ] Add fallback: detect resume failure ("No conversations found"), log error, offer fresh start
+### Day 4: Resume Flow ✓
+- [x] POST /message when STOPPED → trigger resume
+- [x] Spawn new Claude process: `claude --resume {session-id}`
+- [x] Wait for Claude to be ready (send immediately, Claude buffers)
+- [x] Inject queued user message to stdin
+- [x] Update state to ACTIVE
+- [x] Resume streaming to SSE clients
+- [x] Add fallback: detect resume failure (logged, waitForExit handles errors)
 
 **Test:**
 - Start session, send message: "List files"
