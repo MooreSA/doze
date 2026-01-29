@@ -9,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
     <style>
         :root {
             --bg-primary: #0a0a0b;
@@ -350,6 +351,133 @@
         .message-content pre code {
             background: none;
             padding: 0;
+        }
+
+        /* Markdown elements */
+        .message-content h1,
+        .message-content h2,
+        .message-content h3,
+        .message-content h4,
+        .message-content h5,
+        .message-content h6 {
+            margin: 20px 0 12px 0;
+            font-weight: 600;
+            line-height: 1.4;
+            color: var(--text-primary);
+        }
+
+        .message-content h1:first-child,
+        .message-content h2:first-child,
+        .message-content h3:first-child,
+        .message-content h4:first-child,
+        .message-content h5:first-child,
+        .message-content h6:first-child {
+            margin-top: 0;
+        }
+
+        .message-content h1 { font-size: 24px; }
+        .message-content h2 { font-size: 20px; }
+        .message-content h3 { font-size: 18px; }
+        .message-content h4 { font-size: 16px; }
+        .message-content h5 { font-size: 14px; }
+        .message-content h6 { font-size: 14px; color: var(--text-secondary); }
+
+        .message-content p {
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+
+        .message-content p:first-child {
+            margin-top: 0;
+        }
+
+        .message-content p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message-content ul,
+        .message-content ol {
+            margin: 12px 0;
+            padding-left: 24px;
+            line-height: 1.6;
+        }
+
+        .message-content li {
+            margin: 4px 0;
+        }
+
+        .message-content blockquote {
+            margin: 12px 0;
+            padding: 12px 16px;
+            border-left: 3px solid var(--accent-primary);
+            background: var(--bg-tertiary);
+            border-radius: var(--radius-sm);
+            color: var(--text-secondary);
+        }
+
+        .message-content blockquote p:first-child {
+            margin-top: 0;
+        }
+
+        .message-content blockquote p:last-child {
+            margin-bottom: 0;
+        }
+
+        .message-content a {
+            color: var(--accent-primary);
+            text-decoration: none;
+            border-bottom: 1px solid transparent;
+            transition: border-color 0.2s;
+        }
+
+        .message-content a:hover {
+            border-bottom-color: var(--accent-primary);
+        }
+
+        .message-content hr {
+            margin: 20px 0;
+            border: none;
+            border-top: 1px solid var(--border-default);
+        }
+
+        .message-content table {
+            margin: 12px 0;
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 14px;
+        }
+
+        .message-content table th,
+        .message-content table td {
+            padding: 8px 12px;
+            border: 1px solid var(--border-default);
+            text-align: left;
+        }
+
+        .message-content table th {
+            background: var(--bg-tertiary);
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .message-content table td {
+            color: var(--text-secondary);
+        }
+
+        .message-content img {
+            max-width: 100%;
+            height: auto;
+            border-radius: var(--radius-md);
+            margin: 12px 0;
+        }
+
+        .message-content strong {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .message-content em {
+            font-style: italic;
         }
 
         /* Tool invocations */
@@ -1015,7 +1143,13 @@
 
         function appendToAssistant(text) {
             const content = getOrCreateAssistantMessage();
-            content.innerHTML += escapeHtml(text);
+            // Accumulate text in a buffer for proper markdown parsing
+            if (!content.dataset.buffer) {
+                content.dataset.buffer = '';
+            }
+            content.dataset.buffer += text;
+            // Parse the accumulated markdown
+            content.innerHTML = marked.parse(content.dataset.buffer);
             scrollToBottom();
         }
 
@@ -1054,6 +1188,9 @@
         }
 
         function finalizeAssistantMessage() {
+            if (currentAssistantMessage && currentAssistantMessage.dataset.buffer) {
+                delete currentAssistantMessage.dataset.buffer;
+            }
             currentAssistantMessage = null;
         }
 

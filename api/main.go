@@ -31,7 +31,7 @@ import (
 // Constants for configuration and magic strings
 const (
 	// Server defaults
-	DefaultPort     = "8080"
+	DefaultPort     = "2020"
 	DefaultRepoPath = "/home/sprite/doze"
 	DefaultWebPath  = "../web"
 
@@ -69,7 +69,7 @@ const (
 	// Security settings
 	// Set to true for remote/production use (no permission prompts)
 	// Set to false for local development (safer, allows manual approval)
-	SkipPermissions = false
+	SkipPermissions = true
 )
 
 // SessionState represents the current state of a Claude Code session.
