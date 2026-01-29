@@ -1430,6 +1430,44 @@
             renderFileChanges();
         }
 
+        function addFileEditEvent(event) {
+            // Convert real-time file edit event to FileChange format
+            // Extract relative path from absolute path
+            let relativePath = event.file_path;
+
+            // Determine status based on operation
+            let status = 'M'; // Default to modified
+            if (event.operation === 'write') {
+                status = 'M'; // Could be new or modified, git will tell us later
+            } else if (event.operation === 'edit') {
+                status = 'M';
+            } else if (event.operation === 'notebook_edit') {
+                status = 'M';
+            }
+
+            // Check if this file is already in the list
+            const existingIndex = fileChanges.findIndex(c => c.path === relativePath);
+
+            if (existingIndex === -1) {
+                // Add new file change
+                fileChanges.push({
+                    path: relativePath,
+                    status: status,
+                    diff: `[Real-time edit detected at ${event.timestamp}]`,
+                    realtime: true
+                });
+            } else {
+                // Update timestamp for existing entry
+                fileChanges[existingIndex].diff = `[Real-time edit detected at ${event.timestamp}]`;
+                fileChanges[existingIndex].realtime = true;
+            }
+
+            // Update UI
+            fileChangesCount.textContent = fileChanges.length;
+            fileChangesBadge.classList.add('visible');
+            renderFileChanges();
+        }
+
         function renderFileChanges() {
             fileChangesList.innerHTML = '';
 
@@ -1453,9 +1491,14 @@
                 const itemEl = document.createElement('div');
                 itemEl.className = 'file-change-item';
                 itemEl.dataset.index = index;
+
+                // Add realtime indicator if applicable
+                const realtimeIndicator = change.realtime ?
+                    '<span style="font-size: 10px; color: var(--accent-info); margin-left: 4px;">●</span>' : '';
+
                 itemEl.innerHTML = `
                     <div class="file-change-status ${statusClasses[change.status]}">${statusLabels[change.status]}</div>
-                    <div class="file-change-path">${escapeHtml(change.path)}</div>
+                    <div class="file-change-path">${escapeHtml(change.path)}${realtimeIndicator}</div>
                     <svg class="file-change-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="6 9 12 15 18 9"></polyline>
                     </svg>
@@ -1583,8 +1626,15 @@
 
                 if (data.type === 'file_changes') {
                     try {
-                        const changes = JSON.parse(data.content);
-                        updateFileChanges(changes);
+                        const parsed = JSON.parse(data.content);
+                        // Handle both single FileEditEvent objects and arrays of FileChange objects
+                        if (Array.isArray(parsed)) {
+                            // Git-based file changes (end of response)
+                            updateFileChanges(parsed);
+                        } else if (parsed.tool && parsed.file_path) {
+                            // Real-time file edit event
+                            addFileEditEvent(parsed);
+                        }
                     } catch (err) {
                         console.error('Failed to parse file changes:', err);
                     }

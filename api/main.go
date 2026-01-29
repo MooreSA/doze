@@ -712,6 +712,8 @@ func handleStdout() {
 					toolMsg := formatToolUse(c.Name, c.Input)
 					slog.Debug("tool use detected", "tool", c.Name, "input", c.Input)
 					broadcastEvent(SSEEvent{Type: EventTypeInfo, Content: toolMsg})
+					// Track file edits in real-time
+					trackFileEdit(c.Name, c.Input)
 				}
 			}
 			// Capture session ID if present (needed for --resume)
@@ -1114,6 +1116,83 @@ type FileChange struct {
 	Path   string `json:"path"`   // File path relative to repo root
 	Status string `json:"status"` // Git status: M (modified), A (added), D (deleted), R (renamed), etc.
 	Diff   string `json:"diff"`   // Unified diff output for the file
+}
+
+// FileEditEvent represents a real-time file edit operation from Claude's tool calls.
+type FileEditEvent struct {
+	Tool      string `json:"tool"`       // Tool name: "Edit", "Write", or "NotebookEdit"
+	FilePath  string `json:"file_path"`  // Absolute path to the file being edited
+	Operation string `json:"operation"`  // Type of operation: "edit", "write", "create"
+	Timestamp string `json:"timestamp"`  // ISO 8601 timestamp
+}
+
+// trackFileEdit tracks file edit operations from Claude's tool calls in real-time.
+//
+// This function is called immediately when Claude makes an Edit, Write, or NotebookEdit
+// tool call. It broadcasts a file_edit event to SSE clients so they can see which files
+// are being modified as Claude works, before the final git diff is available.
+//
+// Supported tools:
+//   - Edit: Modifying existing file content
+//   - Write: Creating new files or overwriting existing ones
+//   - NotebookEdit: Editing Jupyter notebook cells
+func trackFileEdit(toolName string, input map[string]interface{}) {
+	// Only track file editing tools
+	if toolName != "Edit" && toolName != "Write" && toolName != "NotebookEdit" {
+		return
+	}
+
+	var filePath string
+	var operation string
+
+	// Extract file path based on tool type
+	switch toolName {
+	case "Edit", "Write":
+		if path, ok := input["file_path"].(string); ok {
+			filePath = path
+		}
+	case "NotebookEdit":
+		if path, ok := input["notebook_path"].(string); ok {
+			filePath = path
+		}
+	}
+
+	// If no file path found, skip tracking
+	if filePath == "" {
+		return
+	}
+
+	// Determine operation type
+	switch toolName {
+	case "Edit":
+		operation = "edit"
+	case "Write":
+		operation = "write"
+	case "NotebookEdit":
+		operation = "notebook_edit"
+	}
+
+	// Create the event
+	event := FileEditEvent{
+		Tool:      toolName,
+		FilePath:  filePath,
+		Operation: operation,
+		Timestamp: time.Now().Format(time.RFC3339),
+	}
+
+	// Marshal to JSON
+	eventJSON, err := json.Marshal(event)
+	if err != nil {
+		slog.Error("failed to marshal file edit event", "error", err)
+		return
+	}
+
+	// Broadcast to SSE clients
+	slog.Info("file edit tracked", "tool", toolName, "path", filePath, "operation", operation)
+	broadcastEvent(SSEEvent{
+		Type:    EventTypeFileChanges,
+		Content: string(eventJSON),
+	})
 }
 
 // detectAndBroadcastFileChanges detects file changes using git and broadcasts them to SSE clients.
