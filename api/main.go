@@ -58,10 +58,11 @@ const (
 	ContentTypeToolUse = "tool_use"
 
 	// SSE event types
-	EventTypeOutput = "output"
-	EventTypeState  = "state"
-	EventTypeError  = "error"
-	EventTypeInfo   = "info"
+	EventTypeOutput      = "output"
+	EventTypeState       = "state"
+	EventTypeError       = "error"
+	EventTypeInfo        = "info"
+	EventTypeFileChanges = "file_changes"
 
 	// Display limits
 	StatusRecentOutputLimit = 500 // Characters of recent output to include in status endpoint
@@ -735,7 +736,8 @@ func handleStdout() {
 				session.State = StateWaiting
 				slog.Info("state transition", "from", StateActive, "to", StateWaiting, "reason", "response_complete")
 				go broadcastState(StateWaiting)
-				resetIdleTimer() // Start countdown to session stop
+				go detectAndBroadcastFileChanges() // Check for git changes
+				resetIdleTimer()                   // Start countdown to session stop
 			}
 			session.mu.Unlock()
 			continue // Don't output the result text
@@ -1104,6 +1106,101 @@ func broadcastEvent(event SSEEvent) {
 			// Client buffer full (client is slow or disconnected), skip this event
 			slog.Warn("client buffer full, skipping event", "client_id", client.id)
 		}
+	}
+}
+
+// FileChange represents a single file change detected by git.
+type FileChange struct {
+	Path   string `json:"path"`   // File path relative to repo root
+	Status string `json:"status"` // Git status: M (modified), A (added), D (deleted), R (renamed), etc.
+	Diff   string `json:"diff"`   // Unified diff output for the file
+}
+
+// detectAndBroadcastFileChanges detects file changes using git and broadcasts them to SSE clients.
+//
+// This function is called after Claude finishes responding. It:
+//  1. Runs `git status --short` to detect changed files
+//  2. For each changed file, runs `git diff` to get the actual diff
+//  3. Broadcasts the changes as a file_changes event
+//
+// This allows the frontend to show users what files Claude modified.
+func detectAndBroadcastFileChanges() {
+	// Get the repo path
+	repoPath := DefaultRepoPath
+	if envPath := os.Getenv("REPO_PATH"); envPath != "" {
+		repoPath = envPath
+	}
+
+	// Run git status to detect changed files
+	cmd := exec.Command("git", "status", "--short")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		slog.Debug("failed to run git status (not a git repo or no changes)", "error", err)
+		return
+	}
+
+	if len(output) == 0 {
+		// No changes detected
+		return
+	}
+
+	// Parse git status output
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	var changes []FileChange
+
+	for _, line := range lines {
+		if len(line) < 4 {
+			continue
+		}
+
+		// Git status format: "XY filename" where X is staged, Y is unstaged
+		statusCode := strings.TrimSpace(line[0:2])
+		filePath := strings.TrimSpace(line[3:])
+
+		// Determine the primary status
+		status := "M" // default to modified
+		if strings.Contains(statusCode, "A") {
+			status = "A" // added
+		} else if strings.Contains(statusCode, "D") {
+			status = "D" // deleted
+		} else if strings.Contains(statusCode, "R") {
+			status = "R" // renamed
+		} else if strings.Contains(statusCode, "?") {
+			status = "U" // untracked
+		}
+
+		// Get the diff for this file (skip untracked files)
+		var diff string
+		if status != "U" && status != "D" {
+			diffCmd := exec.Command("git", "diff", "HEAD", "--", filePath)
+			diffCmd.Dir = repoPath
+			diffOutput, diffErr := diffCmd.Output()
+			if diffErr == nil {
+				diff = string(diffOutput)
+			}
+		}
+
+		changes = append(changes, FileChange{
+			Path:   filePath,
+			Status: status,
+			Diff:   diff,
+		})
+	}
+
+	if len(changes) > 0 {
+		// Marshal changes to JSON
+		changesJSON, err := json.Marshal(changes)
+		if err != nil {
+			slog.Error("failed to marshal file changes", "error", err)
+			return
+		}
+
+		slog.Info("detected file changes", "count", len(changes))
+		broadcastEvent(SSEEvent{
+			Type:    EventTypeFileChanges,
+			Content: string(changesJSON),
+		})
 	}
 }
 

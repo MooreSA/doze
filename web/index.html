@@ -178,6 +178,187 @@
             50% { opacity: 0.5; transform: scale(0.9); }
         }
 
+        /* File changes panel */
+        .file-changes-badge {
+            display: none;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: var(--accent-success-soft);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 100px;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--accent-success);
+            cursor: pointer;
+            transition: all var(--transition-normal);
+        }
+
+        .file-changes-badge:hover {
+            background: rgba(16, 185, 129, 0.25);
+        }
+
+        .file-changes-badge.visible {
+            display: flex;
+        }
+
+        .file-changes-badge svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        .file-changes-panel {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-default);
+            max-height: 50vh;
+            transform: translateY(100%);
+            transition: transform var(--transition-slow);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .file-changes-panel.open {
+            transform: translateY(0);
+        }
+
+        .file-changes-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .file-changes-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .file-changes-close {
+            width: 32px;
+            height: 32px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all var(--transition-fast);
+        }
+
+        .file-changes-close:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        .file-changes-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+
+        .file-change-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+        }
+
+        .file-change-item:hover {
+            background: var(--bg-hover);
+            border-color: var(--border-default);
+        }
+
+        .file-change-status {
+            width: 24px;
+            height: 24px;
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+            font-family: var(--font-mono);
+            flex-shrink: 0;
+        }
+
+        .file-change-status.modified {
+            background: var(--accent-warning-soft);
+            color: var(--accent-warning);
+        }
+
+        .file-change-status.added {
+            background: var(--accent-success-soft);
+            color: var(--accent-success);
+        }
+
+        .file-change-status.deleted {
+            background: var(--accent-error-soft);
+            color: var(--accent-error);
+        }
+
+        .file-change-status.untracked {
+            background: var(--accent-info-soft);
+            color: var(--accent-info);
+        }
+
+        .file-change-path {
+            flex: 1;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            color: var(--text-primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-change-expand {
+            width: 20px;
+            height: 20px;
+            color: var(--text-tertiary);
+            transition: transform var(--transition-fast);
+        }
+
+        .file-change-item.expanded .file-change-expand {
+            transform: rotate(180deg);
+        }
+
+        .file-change-diff {
+            display: none;
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.6;
+            overflow-x: auto;
+            white-space: pre;
+            color: var(--text-secondary);
+        }
+
+        .file-change-item.expanded .file-change-diff {
+            display: block;
+        }
+
         /* Messages area */
         .messages {
             flex: 1;
@@ -981,6 +1162,16 @@
                     <span class="status-dot"></span>
                     <span class="status-text" id="status-text">Connecting</span>
                 </div>
+                <div class="file-changes-badge" id="file-changes-badge">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                        <polyline points="10 9 9 9 8 9"></polyline>
+                    </svg>
+                    <span id="file-changes-count">0</span>
+                </div>
             </div>
         </header>
 
@@ -1020,6 +1211,27 @@
                 <div class="input-hint">Claude Code running remotely</div>
             </div>
         </div>
+
+        <div class="file-changes-panel" id="file-changes-panel">
+            <div class="file-changes-header">
+                <div class="file-changes-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                    </svg>
+                    File Changes
+                </div>
+                <button class="file-changes-close" id="file-changes-close">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="file-changes-list" id="file-changes-list">
+                <!-- File changes will be inserted here -->
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1032,11 +1244,17 @@
         const sendButton = document.getElementById('send-button');
         const statusEl = document.getElementById('status');
         const statusText = document.getElementById('status-text');
+        const fileChangesBadge = document.getElementById('file-changes-badge');
+        const fileChangesCount = document.getElementById('file-changes-count');
+        const fileChangesPanel = document.getElementById('file-changes-panel');
+        const fileChangesList = document.getElementById('file-changes-list');
+        const fileChangesClose = document.getElementById('file-changes-close');
 
         let eventSource;
         let sessionStarted = false;
         let currentAssistantMessage = null;
         let typingIndicator = null;
+        let fileChanges = [];
 
         // Status management
         function updateStatus(state, text) {
@@ -1204,6 +1422,69 @@
             return div.innerHTML;
         }
 
+        // File changes management
+        function updateFileChanges(changes) {
+            fileChanges = changes;
+            fileChangesCount.textContent = changes.length;
+            fileChangesBadge.classList.add('visible');
+            renderFileChanges();
+        }
+
+        function renderFileChanges() {
+            fileChangesList.innerHTML = '';
+
+            fileChanges.forEach((change, index) => {
+                const statusLabels = {
+                    'M': 'M',
+                    'A': 'A',
+                    'D': 'D',
+                    'U': 'U',
+                    'R': 'R'
+                };
+
+                const statusClasses = {
+                    'M': 'modified',
+                    'A': 'added',
+                    'D': 'deleted',
+                    'U': 'untracked',
+                    'R': 'modified'
+                };
+
+                const itemEl = document.createElement('div');
+                itemEl.className = 'file-change-item';
+                itemEl.dataset.index = index;
+                itemEl.innerHTML = `
+                    <div class="file-change-status ${statusClasses[change.status]}">${statusLabels[change.status]}</div>
+                    <div class="file-change-path">${escapeHtml(change.path)}</div>
+                    <svg class="file-change-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                `;
+
+                // Add diff section if available
+                if (change.diff) {
+                    const diffEl = document.createElement('div');
+                    diffEl.className = 'file-change-diff';
+                    diffEl.textContent = change.diff;
+                    itemEl.appendChild(diffEl);
+                }
+
+                // Toggle expand on click
+                itemEl.addEventListener('click', () => {
+                    itemEl.classList.toggle('expanded');
+                });
+
+                fileChangesList.appendChild(itemEl);
+            });
+        }
+
+        function toggleFileChangesPanel() {
+            fileChangesPanel.classList.toggle('open');
+        }
+
+        fileChangesBadge.addEventListener('click', toggleFileChangesPanel);
+        fileChangesClose.addEventListener('click', toggleFileChangesPanel);
+
         // Session management
         async function startSession() {
             try {
@@ -1298,6 +1579,15 @@
 
                 if (data.type === 'error') {
                     addError(data.content);
+                }
+
+                if (data.type === 'file_changes') {
+                    try {
+                        const changes = JSON.parse(data.content);
+                        updateFileChanges(changes);
+                    } catch (err) {
+                        console.error('Failed to parse file changes:', err);
+                    }
                 }
 
                 if (data.type === 'state') {
