@@ -2,6 +2,7 @@ import { useSession } from '../SessionContext';
 import { SessionState } from '../types';
 import { WelcomeScreen } from './WelcomeScreen';
 import { useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 export function MessageList() {
   const { messages, isTyping, state } = useSession();
@@ -22,7 +23,26 @@ export function MessageList() {
       case 'Read':
         return input.file_path || '';
       case 'Write':
+        if (input.file_path && input.content) {
+          const lines = input.content.split('\n').length;
+          return `${input.file_path} (${lines} lines)`;
+        }
+        return input.file_path || '';
       case 'Edit':
+        if (input.file_path) {
+          let details = input.file_path;
+          if (input.old_string && input.new_string) {
+            const oldLines = input.old_string.split('\n').length;
+            const newLines = input.new_string.split('\n').length;
+            const diff = newLines - oldLines;
+            if (diff > 0) {
+              details += ` (+${diff})`;
+            } else if (diff < 0) {
+              details += ` (${diff})`;
+            }
+          }
+          return details;
+        }
         return input.file_path || '';
       case 'Bash':
         const cmd = input.command || '';
@@ -37,15 +57,7 @@ export function MessageList() {
   };
 
   return (
-    <div
-      className={`flex-1 overflow-y-auto flex flex-col ${showWelcome ? '' : 'p-4 gap-3'}`}
-      style={!showWelcome ? {
-        background: `
-          radial-gradient(ellipse at 50% 100%, rgba(139, 92, 246, 0.1) 0%, transparent 60%),
-          linear-gradient(0deg, rgba(26, 15, 46, 0.5) 0%, transparent 50%)
-        `
-      } : undefined}
-    >
+    <div className={`flex-1 overflow-y-auto flex flex-col relative z-10 ${showWelcome ? '' : 'p-4 gap-3'}`}>
       {showWelcome ? (
         <WelcomeScreen />
       ) : (
@@ -73,9 +85,13 @@ export function MessageList() {
                     msg.role === 'user'
                       ? 'bg-accent-primary text-white'
                       : 'bg-bg-tertiary border border-border-subtle'
-                  }`}
+                  } ${msg.role === 'assistant' ? 'prose prose-invert prose-sm max-w-none' : ''}`}
                 >
-                  {msg.content}
+                  {msg.role === 'assistant' ? (
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  ) : (
+                    msg.content
+                  )}
                 </div>
               </div>
             );
