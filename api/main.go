@@ -28,6 +28,36 @@ import (
 	"time"
 )
 
+// authMiddleware checks for a valid bearer token if AUTH_TOKEN is set.
+// If AUTH_TOKEN is empty, all requests are allowed (local dev mode).
+// Returns 401 Unauthorized if token is missing or invalid.
+func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		token := os.Getenv("AUTH_TOKEN")
+		if token == "" {
+			// No auth configured - allow all requests (local dev)
+			next(w, r)
+			return
+		}
+
+		// Check Authorization header
+		authHeader := r.Header.Get("Authorization")
+		provided := strings.TrimPrefix(authHeader, "Bearer ")
+
+		// Also check query param for SSE connections (EventSource can't set headers)
+		if provided == "" || provided == authHeader {
+			provided = r.URL.Query().Get("token")
+		}
+
+		if provided != token {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		next(w, r)
+	}
+}
+
 // Constants for configuration and magic strings
 const (
 	// Server defaults
@@ -280,13 +310,13 @@ func main() {
 		idleTimeout:  DefaultIdleTimeout, // TODO: Make configurable via env/config
 	}
 
-	// API endpoints
-	http.HandleFunc("/status", handleStatus)   // GET: Check session status
-	http.HandleFunc("/start", handleStart)     // POST: Start a new Claude session
-	http.HandleFunc("/stream", handleStream)   // GET: SSE stream of output and state
-	http.HandleFunc("/message", handleMessage) // POST: Send a message to Claude
+	// API endpoints (protected by auth if AUTH_TOKEN is set)
+	http.HandleFunc("/status", authMiddleware(handleStatus))   // GET: Check session status
+	http.HandleFunc("/start", authMiddleware(handleStart))     // POST: Start a new Claude session
+	http.HandleFunc("/stream", authMiddleware(handleStream))   // GET: SSE stream of output and state
+	http.HandleFunc("/message", authMiddleware(handleMessage)) // POST: Send a message to Claude
 
-	// Serve web UI
+	// Serve web UI (public - handles its own token flow)
 	http.HandleFunc("/", handleIndex)
 
 	slog.Info("server listening", "port", port, "endpoints", []string{"/status", "/start", "/stream", "/message"})

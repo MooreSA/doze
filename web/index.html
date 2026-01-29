@@ -230,6 +230,40 @@
         let eventSource;
         let sessionStarted = false;
 
+        // Token management - check URL param, then localStorage
+        function getToken() {
+            // Check URL param first (for sharing links)
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlToken = urlParams.get('token');
+            if (urlToken) {
+                localStorage.setItem('doze_token', urlToken);
+                // Clean URL (remove token from visible URL for security)
+                window.history.replaceState({}, document.title, window.location.pathname);
+                return urlToken;
+            }
+            return localStorage.getItem('doze_token') || '';
+        }
+
+        let authToken = getToken();
+
+        // Helper to add auth header to fetch requests
+        function authHeaders(headers = {}) {
+            if (authToken) {
+                headers['Authorization'] = `Bearer ${authToken}`;
+            }
+            return headers;
+        }
+
+        // Handle 401 errors - prompt for token
+        function handleAuthError() {
+            const token = prompt('Authentication required. Enter your access token:');
+            if (token) {
+                localStorage.setItem('doze_token', token);
+                authToken = token;
+                location.reload();
+            }
+        }
+
         function updateStatus(state, text) {
             statusEl.className = `status ${state}`;
             statusText.textContent = text;
@@ -256,9 +290,14 @@
                 updateStatus('starting', 'Starting session...');
                 const response = await fetch('/start', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: authHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify({ repo_path: '.' })
                 });
+
+                if (response.status === 401) {
+                    handleAuthError();
+                    return;
+                }
 
                 if (response.ok) {
                     sessionStarted = true;
@@ -274,7 +313,9 @@
         }
 
         function connect() {
-            eventSource = new EventSource('/stream');
+            // EventSource can't set headers, so pass token as query param
+            const streamUrl = authToken ? `/stream?token=${encodeURIComponent(authToken)}` : '/stream';
+            eventSource = new EventSource(streamUrl);
 
             eventSource.onopen = () => {
                 input.disabled = false;
@@ -323,11 +364,30 @@
                 }
             };
 
-            eventSource.onerror = () => {
-                updateStatus('none', 'Disconnected - reconnecting...');
+            eventSource.onerror = (e) => {
+                // Check if this is an auth error (EventSource doesn't expose status directly)
+                // If we get an immediate error and have no token, likely auth required
+                if (eventSource.readyState === EventSource.CLOSED && !sessionStarted) {
+                    // Try a status check to see if it's auth
+                    fetch('/status', { headers: authHeaders() })
+                        .then(r => {
+                            if (r.status === 401) {
+                                handleAuthError();
+                            } else {
+                                updateStatus('none', 'Disconnected - reconnecting...');
+                                setTimeout(connect, 2000);
+                            }
+                        })
+                        .catch(() => {
+                            updateStatus('none', 'Disconnected - reconnecting...');
+                            setTimeout(connect, 2000);
+                        });
+                } else {
+                    updateStatus('none', 'Disconnected - reconnecting...');
+                    setTimeout(connect, 2000);
+                }
                 input.disabled = true;
                 eventSource.close();
-                setTimeout(connect, 2000);
             };
         }
 
@@ -350,9 +410,14 @@
                 try {
                     const response = await fetch('/message', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: authHeaders({ 'Content-Type': 'application/json' }),
                         body: JSON.stringify({ content: message })
                     });
+
+                    if (response.status === 401) {
+                        handleAuthError();
+                        return;
+                    }
 
                     if (!response.ok) {
                         const error = await response.json();
@@ -372,10 +437,16 @@
         connect();
 
         // Check if session exists
-        fetch('/status')
-            .then(r => r.json())
+        fetch('/status', { headers: authHeaders() })
+            .then(r => {
+                if (r.status === 401) {
+                    handleAuthError();
+                    return null;
+                }
+                return r.json();
+            })
             .then(data => {
-                if (data.state !== 'none') {
+                if (data && data.state !== 'none') {
                     sessionStarted = true;
                 }
             })
