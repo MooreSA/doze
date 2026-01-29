@@ -155,6 +155,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setMessages([]);
       setFileChanges([]);
       setCurrentAssistantMessage('');
+      // Don't add the /clear message itself to the messages array
+      // Still send to backend to reset session state
+      const res = await fetch('/message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text }),
+      });
+      if (!res.ok) {
+        throw new Error('Failed to send message');
+      }
+      return;
     }
 
     // Add user message to messages array
