@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    @apply h-full overflow-hidden;
+  }
+
+  body {
+    @apply bg-bg-primary text-text-primary text-sm leading-normal antialiased;
+    font-family: theme('fontFamily.sans');
+  }
+
+  button {
+    @apply cursor-pointer border-none bg-transparent;
+    font-family: inherit;
+    color: inherit;
+  }
+
+  input, textarea {
+    @apply border-none bg-transparent outline-none;
+    font-family: inherit;
+    color: inherit;
+  }
+}
