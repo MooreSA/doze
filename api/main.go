@@ -65,6 +65,11 @@ const (
 
 	// Display limits
 	StatusRecentOutputLimit = 500 // Characters of recent output to include in status endpoint
+
+	// Security settings
+	// Set to true for remote/production use (no permission prompts)
+	// Set to false for local development (safer, allows manual approval)
+	SkipPermissions = false
 )
 
 // SessionState represents the current state of a Claude Code session.
@@ -440,12 +445,16 @@ func startClaudeProcess(repoPath string) error {
 	// --input-format=stream-json: Accept JSON messages on stdin
 	// --output-format=stream-json: Emit JSON messages on stdout
 	// --verbose: Include session metadata in output
-	cmd := exec.Command("claude",
+	args := []string{
 		"--print",
 		"--input-format=stream-json",
 		"--output-format=stream-json",
 		"--verbose",
-	)
+	}
+	if SkipPermissions {
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	cmd := exec.Command("claude", args...)
 	cmd.Dir = repoPath
 
 	// Get pipes for stdin/stdout/stderr
@@ -527,13 +536,17 @@ func resumeClaudeProcess(queuedMessage string) error {
 	broadcastState(StateStarting)
 
 	// Build command with --resume flag
-	cmd := exec.Command("claude",
+	args := []string{
 		"--resume", sessionID,
 		"--print",
 		"--input-format=stream-json",
 		"--output-format=stream-json",
 		"--verbose",
-	)
+	}
+	if SkipPermissions {
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	cmd := exec.Command("claude", args...)
 	cmd.Dir = repoPath
 
 	// Get pipes for stdin/stdout/stderr
