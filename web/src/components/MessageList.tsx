@@ -1,11 +1,18 @@
 import { useSession } from '../SessionContext';
 import { SessionState } from '../types';
 import { WelcomeScreen } from './WelcomeScreen';
+import { useEffect, useRef } from 'react';
 
 export function MessageList() {
   const { messages, isTyping, state } = useSession();
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const showWelcome = (state === SessionState.NONE || state === SessionState.STOPPED) && messages.length === 0;
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isTyping]);
 
   return (
     <div
@@ -21,37 +28,37 @@ export function MessageList() {
         <WelcomeScreen />
       ) : (
         <>
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex flex-col max-w-[85%] ${msg.role === 'user' ? 'self-end' : 'self-start'}`}
-            >
-              {msg.tools && msg.tools.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
-                  {msg.tools.map((tool, idx) => (
-                    <div
-                      key={idx}
-                      className="px-2 py-1 text-xs rounded bg-bg-tertiary border border-border-subtle text-text-secondary"
-                      title={tool.description}
-                    >
-                      {tool.tool}
-                    </div>
-                  ))}
+          {messages.map((msg) => {
+            if (msg.role === 'tool') {
+              return (
+                <div key={msg.id} className="flex self-start max-w-[85%] animate-slideInLeft">
+                  <div className="px-3 py-2 text-xs rounded-md bg-bg-tertiary border border-border-subtle">
+                    <span className="text-accent-primary font-medium">{msg.toolName}</span>
+                    {msg.content && <span className="text-text-tertiary ml-2">{msg.content}</span>}
+                  </div>
                 </div>
-              )}
+              );
+            }
+
+            return (
               <div
-                className={`px-4 py-3 rounded-md ${
-                  msg.role === 'user'
-                    ? 'bg-accent-primary text-white'
-                    : 'bg-bg-tertiary border border-border-subtle'
-                }`}
+                key={msg.id}
+                className={`flex max-w-[85%] ${msg.role === 'user' ? 'self-end animate-slideInRight' : 'self-start animate-slideInLeft'}`}
               >
-                {msg.content}
+                <div
+                  className={`px-4 py-3 rounded-md ${
+                    msg.role === 'user'
+                      ? 'bg-accent-primary text-white'
+                      : 'bg-bg-tertiary border border-border-subtle'
+                  }`}
+                >
+                  {msg.content}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {isTyping && (
-            <div className="flex max-w-[85%] self-start">
+            <div className="flex max-w-[85%] self-start animate-slideInLeft">
               <div className="flex gap-1 px-4 py-3">
                 <span className="w-2 h-2 rounded-full bg-text-tertiary animate-typing"></span>
                 <span className="w-2 h-2 rounded-full bg-text-tertiary animate-typing [animation-delay:0.2s]"></span>
@@ -59,6 +66,7 @@ export function MessageList() {
               </div>
             </div>
           )}
+          <div ref={messagesEndRef} />
         </>
       )}
     </div>

@@ -19,15 +19,10 @@ export const EventType = {
 
 export interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'tool';
   content: string;
   timestamp: number;
-  tools?: ToolUse[];
-}
-
-export interface ToolUse {
-  tool: string;
-  description?: string;
+  toolName?: string; // For tool messages
 }
 
 export interface FileChange {

@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { SessionState, type SessionStateType, type Message, type FileChange, type ToolUse } from './types';
+import { SessionState, type SessionStateType, type Message, type FileChange } from './types';
 
 interface SessionContextType {
   state: SessionStateType;
@@ -18,7 +18,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [fileChanges, setFileChanges] = useState<FileChange[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [currentAssistantMessage, setCurrentAssistantMessage] = useState<string>('');
-  const [currentTools, setCurrentTools] = useState<ToolUse[]>([]);
 
   const connect = useCallback(() => {
     const es = new EventSource('/stream');
@@ -48,7 +47,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const match = data.content.match(/^[^\w]*(\w+)\s*(.*)?$/);
       if (match) {
         const [, tool, description] = match;
-        setCurrentTools(prev => [...prev, { tool, description: description?.trim() }]);
+
+        // Add tool message immediately to the message list
+        setMessages(prev => [...prev, {
+          id: Date.now().toString() + Math.random(),
+          role: 'tool',
+          content: description?.trim() || '',
+          toolName: tool,
+          timestamp: Date.now(),
+        }]);
       }
     });
 
@@ -109,7 +116,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           return [...prev.slice(0, -1), {
             ...lastMsg,
             content: currentAssistantMessage,
-            tools: currentTools.length > 0 ? currentTools : undefined
           }];
         }
         return [...prev, {
@@ -117,13 +123,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           role: 'assistant',
           content: currentAssistantMessage,
           timestamp: Date.now(),
-          tools: currentTools.length > 0 ? currentTools : undefined
         }];
       });
       setCurrentAssistantMessage('');
-      setCurrentTools([]);
     }
-  }, [currentAssistantMessage, isTyping, currentTools]);
+  }, [currentAssistantMessage, isTyping]);
 
   const startSession = async () => {
     const res = await fetch('/start', { method: 'POST' });
@@ -142,7 +146,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }]);
 
     setIsTyping(true);
-    setCurrentTools([]);
 
     const res = await fetch('/message', {
       method: 'POST',
