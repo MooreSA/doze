@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
@@ -30,8 +29,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/superfly/sprites-go"
 )
 
 // Constants for configuration and magic strings
@@ -221,11 +218,8 @@ type Session struct {
 	LastActivity    time.Time    // Last time user sent a message or Claude produced output
 	LastOutputAt    time.Time    // Last time Claude produced output (for timeout detection)
 
-	// Sprite management
-	SpriteName string // Name of the active sprite (empty if using local process)
-
 	// Process management
-	cmd    interface{}    // The running process (*exec.Cmd or *sprites.Cmd)
+	cmd    *exec.Cmd      // The running Claude Code process
 	stdin  io.WriteCloser // Pipe to send messages to Claude
 	stdout io.ReadCloser  // Pipe to read Claude's JSON output
 	stderr io.ReadCloser  // Pipe to read Claude's error output
@@ -245,9 +239,7 @@ type Session struct {
 var session *Session
 var sessionMu sync.Mutex
 
-// Sprite client for remote execution
-var spriteClient *sprites.Client
-var useSprites bool
+// Removed sprite client - running locally on sprite now
 
 // respondJSON sends a JSON response with the given status code.
 // Logs any errors that occur during encoding.
@@ -292,17 +284,6 @@ func main() {
 		outputBuffer: NewRingBuffer(RingBufferSize),
 		sseClients:   make(map[string]*SSEClient),
 		idleTimeout:  DefaultIdleTimeout, // TODO: Make configurable via env/config
-	}
-
-	// Initialize Sprites client (optional)
-	apiKey := os.Getenv("SPRITES_API_KEY")
-	if apiKey == "" {
-		slog.Warn("SPRITES_API_KEY not set - using local process mode")
-		useSprites = false
-	} else {
-		spriteClient = sprites.New(apiKey)
-		useSprites = true
-		slog.Info("sprites client initialized")
 	}
 
 	// API endpoints
@@ -498,104 +479,6 @@ func handleStart(w http.ResponseWriter, r *http.Request) {
 
 // getRepoURL returns the git repository URL to clone
 // For MVP, hardcoded to doze repo. Future: make configurable.
-func getRepoURL() string {
-	// TODO: Make this configurable via environment variable or request parameter
-	if url := os.Getenv("REPO_URL"); url != "" {
-		return url
-	}
-	return "https://github.com/seamus/doze.git"
-}
-
-// randomSpriteID generates a random ID for sprite names
-func randomSpriteID() string {
-	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
-	b := make([]byte, 8)
-	for i := range b {
-		b[i] = charset[rand.Intn(len(charset))]
-	}
-	return string(b)
-}
-
-// createSprite creates a new Sprite and optionally restores from checkpoint
-func createSprite() (*sprites.Sprite, error) {
-	if spriteClient == nil {
-		return nil, fmt.Errorf("sprites client not initialized")
-	}
-
-	// TEMP: Use existing sprite for testing
-	existingSpriteName := os.Getenv("SPRITES_TEST_NAME")
-	if existingSpriteName != "" {
-		slog.Info("using existing sprite for testing", "name", existingSpriteName)
-		sprite := spriteClient.Sprite(existingSpriteName)
-		return sprite, nil
-	}
-
-	// Generate unique sprite name
-	spriteName := fmt.Sprintf("doze-%s", randomSpriteID())
-
-	slog.Info("creating sprite", "name", spriteName)
-
-	// Create sprite
-	sprite, err := spriteClient.Create(spriteName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create sprite: %w", err)
-	}
-
-	// Restore from checkpoint if configured
-	checkpointName := os.Getenv("SPRITES_CHECKPOINT")
-	if checkpointName != "" {
-		slog.Info("restoring sprite from checkpoint", "checkpoint", checkpointName)
-		ctx := context.Background()
-		restoreStream, err := sprite.RestoreCheckpoint(ctx, checkpointName)
-		if err != nil {
-			// Cleanup sprite on restore failure
-			sprite.Destroy()
-			return nil, fmt.Errorf("failed to restore from checkpoint %s: %w", checkpointName, err)
-		}
-		// Process restore stream messages
-		if err := restoreStream.ProcessAll(func(msg *sprites.StreamMessage) error {
-			slog.Debug("restore progress", "message", msg)
-			return nil
-		}); err != nil {
-			sprite.Destroy()
-			return nil, fmt.Errorf("checkpoint restore failed: %w", err)
-		}
-		restoreStream.Close()
-		slog.Info("sprite restored from checkpoint", "name", spriteName, "checkpoint", checkpointName)
-	} else {
-		slog.Info("sprite created (no checkpoint)", "name", spriteName, "id", sprite.ID)
-	}
-
-	return sprite, nil
-}
-
-// destroySprite destroys the active sprite
-func destroySprite(spriteName string) error {
-	if spriteClient == nil {
-		return fmt.Errorf("sprites client not initialized")
-	}
-
-	if spriteName == "" {
-		return fmt.Errorf("no sprite to destroy")
-	}
-
-	// Don't destroy test sprites
-	if testSprite := os.Getenv("SPRITES_TEST_NAME"); testSprite != "" && testSprite == spriteName {
-		slog.Info("skipping destruction of test sprite", "name", spriteName)
-		return nil
-	}
-
-	slog.Info("destroying sprite", "name", spriteName)
-
-	sprite := spriteClient.Sprite(spriteName)
-	if err := sprite.Destroy(); err != nil {
-		return fmt.Errorf("failed to destroy sprite: %w", err)
-	}
-
-	slog.Info("sprite destroyed", "name", spriteName)
-	return nil
-}
-
 // startClaudeProcess spawns a new Claude Code process with stream-json I/O.
 //
 // The process is started in the specified repoPath directory. Uses Claude's
@@ -610,15 +493,8 @@ func destroySprite(spriteName string) error {
 //
 // The session.mu lock must NOT be held when calling this function, as it
 // acquires the lock itself and spawns goroutines that also need it.
+// startClaudeProcess spawns a new Claude Code process locally using exec.Command
 func startClaudeProcess(repoPath string) error {
-	if useSprites {
-		return startClaudeProcessOnSprite(repoPath)
-	}
-	return startClaudeProcessLocal(repoPath)
-}
-
-// startClaudeProcessLocal spawns a new Claude Code process locally using exec.Command
-func startClaudeProcessLocal(repoPath string) error {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 
@@ -696,141 +572,6 @@ func startClaudeProcessLocal(repoPath string) error {
 }
 
 // startClaudeProcessOnSprite spawns a new Claude Code process on a Sprite
-func startClaudeProcessOnSprite(repoPath string) error {
-	session.mu.Lock()
-	defer session.mu.Unlock()
-
-	// Set initial state
-	session.State = StateStarting
-	session.RepoPath = repoPath
-	session.LastActivity = time.Now()
-	broadcastState(StateStarting)
-
-	// CREATE SPRITE
-	sprite, err := createSprite()
-	if err != nil {
-		session.State = StateNone
-		return fmt.Errorf("failed to create sprite: %w", err)
-	}
-	session.SpriteName = sprite.Name()
-
-	// Clone repo into sprite (with retry - sprite may not be ready immediately after restore)
-
-	// First, test if sprite is reachable with a simple command
-	slog.Info("testing sprite connectivity", "sprite", sprite.Name())
-	testCtx, testCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer testCancel()
-	testCmd := sprite.CommandContext(testCtx, "echo", "hello")
-	testStart := time.Now()
-	if err := testCmd.Run(); err != nil {
-		slog.Error("sprite connectivity test failed", "error", err, "duration", time.Since(testStart))
-		destroySprite(sprite.Name())
-		session.State = StateNone
-		return fmt.Errorf("sprite not reachable: %w", err)
-	}
-	slog.Info("sprite connectivity test passed", "duration", time.Since(testStart))
-
-	// Clone or update repo
-	repoURL := getRepoURL()
-
-	// Check if repo already exists
-	checkCtx, checkCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	checkCmd := sprite.CommandContext(checkCtx, "test", "-d", "/home/sprite/doze/.git")
-	repoExists := checkCmd.Run() == nil
-	checkCancel()
-
-	if repoExists {
-		// Repo exists, update it
-		slog.Info("repo already exists, updating", "sprite", sprite.Name())
-		pullCtx, pullCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer pullCancel()
-		pullCmd := sprite.CommandContext(pullCtx, "git", "-C", "/home/sprite/doze", "pull", "--ff-only")
-		if err := pullCmd.Run(); err != nil {
-			slog.Warn("failed to update repo (continuing anyway)", "error", err)
-			// Don't fail on pull errors - repo might have local changes
-		} else {
-			slog.Info("repo updated successfully")
-		}
-	} else {
-		// Repo doesn't exist, clone it
-		slog.Info("cloning repo", "url", repoURL, "sprite", sprite.Name())
-		cloneCtx, cloneCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cloneCancel()
-		cloneCmd := sprite.CommandContext(cloneCtx, "git", "clone", repoURL, "/home/sprite/doze")
-		cloneCmd.Dir = "/home/sprite"
-		if err := cloneCmd.Run(); err != nil {
-			destroySprite(sprite.Name())
-			session.State = StateNone
-			return fmt.Errorf("failed to clone repo: %w", err)
-		}
-		slog.Info("repo cloned successfully")
-	}
-
-	// Build command args
-	args := []string{
-		"--print",
-		"--input-format=stream-json",
-		"--output-format=stream-json",
-		"--verbose",
-	}
-	if SkipPermissions {
-		args = append(args, "--dangerously-skip-permissions")
-	}
-
-	// Use sprite.CommandContext - use background context (no timeout) for long-running process
-	cmd := sprite.CommandContext(context.Background(), "claude", args...)
-	cmd.Dir = "/home/sprite/doze" // Use sprite's home directory
-
-	// Get pipes
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		destroySprite(sprite.Name())
-		session.State = StateNone
-		return fmt.Errorf("failed to get stdin pipe: %w", err)
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		destroySprite(sprite.Name())
-		session.State = StateNone
-		return fmt.Errorf("failed to get stdout pipe: %w", err)
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		destroySprite(sprite.Name())
-		session.State = StateNone
-		return fmt.Errorf("failed to get stderr pipe: %w", err)
-	}
-
-	session.cmd = cmd
-	session.stdin = stdin
-	session.stdout = stdout
-	session.stderr = stderr
-
-	// Start the process
-	if err := cmd.Start(); err != nil {
-		destroySprite(sprite.Name())
-		session.State = StateNone
-		return fmt.Errorf("failed to start claude: %w", err)
-	}
-
-	slog.Info("claude process started on sprite", "sprite", sprite.Name(), "repo_path", "/home/sprite/doze")
-
-	// Start goroutines to handle I/O
-	go handleStdout()
-	go handleStderr()
-	go waitForExit()
-
-	// Transition to waiting state and start idle timer
-	session.State = StateWaiting
-	broadcastState(StateWaiting)
-	resetIdleTimer()
-	slog.Info("session ready", "state", StateWaiting, "idle_timeout", session.idleTimeout)
-
-	return nil
-}
-
 // startClaudeProcessWithMessage spawns a new Claude Code process and sends an initial message.
 //
 // Similar to startClaudeProcess, but transitions directly to StateActive and sends
@@ -887,15 +628,8 @@ func startClaudeProcessWithMessage(repoPath, initialMessage string) error {
 // and waitForExit will handle the error state.
 //
 // The session.mu lock must NOT be held when calling this function.
+// Resumes a stopped Claude Code session with --resume.
 func resumeClaudeProcess(queuedMessage string) error {
-	if useSprites {
-		return resumeClaudeProcessOnSprite(queuedMessage)
-	}
-	return resumeClaudeProcessLocal(queuedMessage)
-}
-
-// resumeClaudeProcessLocal resumes a stopped Claude Code session locally with --resume.
-func resumeClaudeProcessLocal(queuedMessage string) error {
 	session.mu.Lock()
 	defer session.mu.Unlock()
 
@@ -1001,164 +735,6 @@ func resumeClaudeProcessLocal(queuedMessage string) error {
 }
 
 // resumeClaudeProcessOnSprite resumes a stopped Claude Code session on a Sprite with --resume.
-func resumeClaudeProcessOnSprite(queuedMessage string) error {
-	session.mu.Lock()
-	defer session.mu.Unlock()
-
-	if session.ClaudeSessionID == "" {
-		return fmt.Errorf("no session ID available for resume")
-	}
-
-	sessionID := session.ClaudeSessionID
-	repoPath := session.RepoPath
-	if repoPath == "" {
-		var err error
-		repoPath, err = os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get current directory: %w", err)
-		}
-	}
-
-	session.State = StateStarting
-	session.LastActivity = time.Now()
-	broadcastState(StateStarting)
-
-	// REUSE OR CREATE SPRITE
-	var sprite *sprites.Sprite
-	var err error
-
-	if session.SpriteName != "" {
-		// Reuse existing sprite from previous session
-		slog.Info("reusing existing sprite", "sprite", session.SpriteName)
-		sprite = spriteClient.Sprite(session.SpriteName)
-	} else {
-		// Create new sprite
-		sprite, err = createSprite()
-		if err != nil {
-			session.State = StateStopped
-			return fmt.Errorf("failed to create sprite: %w", err)
-		}
-		session.SpriteName = sprite.Name()
-		slog.Info("created new sprite", "sprite", session.SpriteName)
-	}
-
-	// Clone or update repo
-	repoURL := getRepoURL()
-	checkCtx, checkCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	checkCmd := sprite.CommandContext(checkCtx, "test", "-d", "/home/sprite/doze/.git")
-	repoExists := checkCmd.Run() == nil
-	checkCancel()
-
-	if repoExists {
-		slog.Info("repo already exists, updating")
-		pullCtx, pullCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer pullCancel()
-		pullCmd := sprite.CommandContext(pullCtx, "git", "-C", "/home/sprite/doze", "pull", "--ff-only")
-		if err := pullCmd.Run(); err != nil {
-			slog.Warn("failed to update repo (continuing anyway)", "error", err)
-		} else {
-			slog.Info("repo updated successfully")
-		}
-	} else {
-		slog.Info("cloning repo", "url", repoURL)
-		cloneCtx, cloneCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cloneCancel()
-		cloneCmd := sprite.CommandContext(cloneCtx, "git", "clone", repoURL, "/home/sprite/doze")
-		cloneCmd.Dir = "/home/sprite"
-		if err := cloneCmd.Run(); err != nil {
-			destroySprite(sprite.Name())
-			session.State = StateStopped
-			return fmt.Errorf("failed to clone repo: %w", err)
-		}
-		slog.Info("repo cloned successfully")
-	}
-
-	// Build resume command
-	args := []string{
-		"--resume", sessionID,
-		"--print",
-		"--input-format=stream-json",
-		"--output-format=stream-json",
-		"--verbose",
-	}
-	if SkipPermissions {
-		args = append(args, "--dangerously-skip-permissions")
-	}
-
-	// Use sprite.CommandContext - use background context (no timeout) for long-running process
-	cmd := sprite.CommandContext(context.Background(), "claude", args...)
-	cmd.Dir = "/home/sprite/doze"
-
-	// Get pipes
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		destroySprite(sprite.Name())
-		session.State = StateStopped
-		return fmt.Errorf("failed to get stdin pipe: %w", err)
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		destroySprite(sprite.Name())
-		session.State = StateStopped
-		return fmt.Errorf("failed to get stdout pipe: %w", err)
-	}
-
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		destroySprite(sprite.Name())
-		session.State = StateStopped
-		return fmt.Errorf("failed to get stderr pipe: %w", err)
-	}
-
-	session.cmd = cmd
-	session.stdin = stdin
-	session.stdout = stdout
-	session.stderr = stderr
-
-	// Start process
-	if err := cmd.Start(); err != nil {
-		destroySprite(sprite.Name())
-		session.State = StateStopped
-		return fmt.Errorf("failed to start claude for resume: %w", err)
-	}
-
-	slog.Info("claude resume started on sprite", "sprite", sprite.Name(), "session_id", sessionID)
-
-	// Start I/O goroutines
-	go handleStdout()
-	go handleStderr()
-	go waitForExit()
-
-	// Transition to active state
-	session.State = StateActive
-	broadcastState(StateActive)
-
-	// Send queued message
-	inputMsg := map[string]interface{}{
-		"type": MessageTypeUser,
-		"message": map[string]interface{}{
-			"role":    MessageTypeUser,
-			"content": queuedMessage,
-		},
-	}
-	msgBytes, err := json.Marshal(inputMsg)
-	if err != nil {
-		slog.Error("failed to marshal queued message", "error", err)
-		return fmt.Errorf("failed to format queued message: %w", err)
-	}
-
-	// Write to stdin in a goroutine to avoid blocking
-	go func() {
-		if _, err := fmt.Fprintf(stdin, "%s\n", msgBytes); err != nil {
-			slog.Error("failed to write queued message to stdin", "error", err)
-		}
-		slog.Info("queued message sent to resumed session")
-	}()
-
-	return nil
-}
-
 // ClaudeStreamMessage represents a message from Claude's stream-json output.
 //
 // Claude emits several message types:
@@ -1397,13 +973,8 @@ func handleStderr() {
 //
 // If the exit was unexpected, broadcasts an error event to connected clients.
 func waitForExit() {
-	// Wait for process - handle both exec.Cmd and sprites.Cmd
-	var err error
-	if cmd, ok := session.cmd.(*exec.Cmd); ok {
-		err = cmd.Wait()
-	} else if cmd, ok := session.cmd.(*sprites.Cmd); ok {
-		err = cmd.Wait()
-	}
+	// Wait for Claude process to exit
+	err := session.cmd.Wait()
 
 	session.mu.Lock()
 	defer session.mu.Unlock()
@@ -1432,10 +1003,6 @@ func waitForExit() {
 	session.stdin = nil
 	session.stdout = nil
 	session.stderr = nil
-
-	// Keep sprite name for potential reuse - sprite will auto-hibernate when idle
-	// We do NOT destroy the sprite here; it will scale to $0 when idle
-	slog.Info("sprite kept alive for reuse", "sprite", session.SpriteName)
 }
 
 // resetIdleTimer cancels any existing timer and starts a new one.
@@ -1489,39 +1056,31 @@ func stopSession() {
 	broadcastState(StateShuttingDown)
 
 	// Send SIGTERM to Claude process for graceful shutdown
-	if session.cmd != nil {
-		// Try to get Process field - works for exec.Cmd, may not work for sprites.Cmd
-		if cmd, ok := session.cmd.(*exec.Cmd); ok && cmd.Process != nil {
-			processToKill := cmd.Process
-			pid := processToKill.Pid
+	if session.cmd != nil && session.cmd.Process != nil {
+		processToKill := session.cmd.Process
+		pid := processToKill.Pid
 
-			slog.Info("sending SIGTERM to claude process", "pid", pid)
-			if err := processToKill.Signal(os.Interrupt); err != nil {
-				slog.Error("failed to send SIGTERM", "error", err)
-				// Try SIGKILL immediately if SIGTERM fails
-				if killErr := processToKill.Kill(); killErr != nil {
-					slog.Error("failed to kill process immediately", "error", killErr)
-				}
-				return
+		slog.Info("sending SIGTERM to claude process", "pid", pid)
+		if err := processToKill.Signal(os.Interrupt); err != nil {
+			slog.Error("failed to send SIGTERM", "error", err)
+			// Try SIGKILL immediately if SIGTERM fails
+			if killErr := processToKill.Kill(); killErr != nil {
+				slog.Error("failed to kill process immediately", "error", killErr)
 			}
-
-			// Give it time to shut down gracefully, then SIGKILL
-			go func(proc *os.Process, pid int) {
-				time.Sleep(GracefulShutdownTimeout)
-				slog.Warn("force killing process after timeout", "timeout", GracefulShutdownTimeout, "pid", pid)
-				if err := proc.Kill(); err != nil {
-					slog.Debug("failed to force kill process (may have already exited)", "error", err, "pid", pid)
-				}
-			}(processToKill, pid)
-		} else {
-			// sprites.Cmd - the process will be terminated when sprite connection closes
-			slog.Info("stopping sprite-based session", "sprite", session.SpriteName)
+			return
 		}
+
+		// Give it time to shut down gracefully, then SIGKILL
+		go func(proc *os.Process, pid int) {
+			time.Sleep(GracefulShutdownTimeout)
+			slog.Warn("force killing process after timeout", "timeout", GracefulShutdownTimeout, "pid", pid)
+			if err := proc.Kill(); err != nil {
+				slog.Debug("failed to force kill process (may have already exited)", "error", err, "pid", pid)
+			}
+		}(processToKill, pid)
 	}
 
-	// Keep sprite alive - it will auto-hibernate and scale to $0 when idle
-	// We can reuse this sprite when the session resumes
-	slog.Info("session stopped, sprite will hibernate", "sprite", session.SpriteName)
+	slog.Info("session stopped")
 }
 
 // handleStream establishes a Server-Sent Events (SSE) connection for real-time updates.
@@ -1787,38 +1346,27 @@ func trackFileEdit(toolName string, input map[string]interface{}) {
 // This allows the frontend to show users what files Claude modified.
 func detectAndBroadcastFileChanges() {
 	session.mu.RLock()
-	spriteName := session.SpriteName
 	repoPath := session.RepoPath
 	session.mu.RUnlock()
 
-	var output []byte
-	var err error
-
-	// Run git status - either on sprite or locally
-	if useSprites && spriteName != "" {
-		// Run git status on sprite
-		sprite := spriteClient.Sprite(spriteName)
-		statusCmd := sprite.Command("git", "status", "--short")
-		statusCmd.Dir = "/home/sprite/doze"
-		output, err = statusCmd.Output()
-	} else {
-		// Run git status locally
-		if repoPath == "" {
-			if envPath := os.Getenv("REPO_PATH"); envPath != "" {
-				repoPath = envPath
-			} else {
-				repoPath, err = os.Getwd()
-				if err != nil {
-					slog.Debug("failed to get current directory for git diff", "error", err)
-					return
-				}
+	// Determine repo path
+	if repoPath == "" {
+		if envPath := os.Getenv("REPO_PATH"); envPath != "" {
+			repoPath = envPath
+		} else {
+			var err error
+			repoPath, err = os.Getwd()
+			if err != nil {
+				slog.Debug("failed to get current directory for git diff", "error", err)
+				return
 			}
 		}
-
-		cmd := exec.Command("git", "status", "--short")
-		cmd.Dir = repoPath
-		output, err = cmd.Output()
 	}
+
+	// Run git status locally
+	cmd := exec.Command("git", "status", "--short")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
 
 	if err != nil {
 		slog.Debug("failed to run git status (not a git repo or no changes)", "error", err)
@@ -1858,21 +1406,9 @@ func detectAndBroadcastFileChanges() {
 		// Get the diff for this file (skip untracked files)
 		var diff string
 		if status != "U" && status != "D" {
-			var diffOutput []byte
-			var diffErr error
-
-			if useSprites && spriteName != "" {
-				// Run git diff on sprite
-				sprite := spriteClient.Sprite(spriteName)
-				diffCmd := sprite.Command("git", "diff", "HEAD", "--", filePath)
-				diffCmd.Dir = "/home/sprite/doze"
-				diffOutput, diffErr = diffCmd.Output()
-			} else {
-				// Run git diff locally
-				diffCmd := exec.Command("git", "diff", "HEAD", "--", filePath)
-				diffCmd.Dir = repoPath
-				diffOutput, diffErr = diffCmd.Output()
-			}
+			diffCmd := exec.Command("git", "diff", "HEAD", "--", filePath)
+			diffCmd.Dir = repoPath
+			diffOutput, diffErr := diffCmd.Output()
 
 			if diffErr == nil {
 				diff = string(diffOutput)
