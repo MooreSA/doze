@@ -34,8 +34,8 @@ import (
 // Constants for configuration and magic strings
 const (
 	// Server defaults
-	DefaultPort    = "2020"
-	DefaultWebPath = "../web/dist"
+	DefaultPort    = "8080"
+	DefaultWebPath = "/home/sprite/doze/web/dist"
 
 	// Buffer sizes
 	RingBufferSize       = 10 * 1024   // 10KB ring buffer for output
@@ -285,15 +285,15 @@ func main() {
 	}
 
 	// API endpoints
-	http.HandleFunc("/health", handleHealth)   // GET: Health check endpoint
-	http.HandleFunc("/status", handleStatus)   // GET: Check session status
-	http.HandleFunc("/start", handleStart)     // POST: Start a new Claude session
-	http.HandleFunc("/stream", handleStream)   // GET: SSE stream of output and state
-	http.HandleFunc("/message", handleMessage) // POST: Send a message to Claude
-	http.HandleFunc("/diff", handleDiff)       // GET: Get git diff for a specific file
+	http.HandleFunc("GET /health", handleHealth)   // Health check endpoint
+	http.HandleFunc("GET /status", handleStatus)   // Check session status
+	http.HandleFunc("POST /start", handleStart)    // Start a new Claude session
+	http.HandleFunc("GET /stream", handleStream)   // SSE stream of output and state
+	http.HandleFunc("POST /message", handleMessage) // Send a message to Claude
+	http.HandleFunc("GET /diff", handleDiff)       // Get git diff for a specific file
 
-	// Serve web UI
-	http.HandleFunc("/", handleIndex)
+	// Serve web UI (catch-all for SPA routing)
+	http.HandleFunc("GET /{path...}", handleIndex)
 
 	// Set up graceful shutdown
 	server := &http.Server{
